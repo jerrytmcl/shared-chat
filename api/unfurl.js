@@ -311,9 +311,17 @@ export default async function handler(req, res) {
     process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
   )
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
-  if (!supabaseUrl || !serviceKey) {
+  const anonKey = (
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    ''
+  ).trim()
+  // Prefer anon key for JWT validation — matches the client; avoids 401 when
+  // SERVICE_ROLE_KEY is missing/wrong for this project.
+  const authKey = anonKey || serviceKey
+  if (!supabaseUrl || !authKey) {
     return json(res, 500, {
-      error: 'Server missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY',
+      error: 'Server missing SUPABASE_URL or SUPABASE_ANON_KEY / SERVICE_ROLE_KEY',
     })
   }
 
@@ -343,11 +351,12 @@ export default async function handler(req, res) {
     return json(res, 400, { error: 'Invalid url' })
   }
 
-  const admin = createClient(supabaseUrl, serviceKey, {
+  const authClient = createClient(supabaseUrl, authKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
-  const { data: userData, error: userErr } = await admin.auth.getUser(token)
+  const { data: userData, error: userErr } = await authClient.auth.getUser(token)
   if (userErr || !userData?.user) {
+    console.warn('unfurl auth failed', userErr?.message || userErr)
     return json(res, 401, { error: 'Invalid or expired token' })
   }
 

@@ -424,13 +424,14 @@ export function runCardCopy(items) {
   let summary
 
   if (content.length >= 1) {
-    // Real tweet/article text available — temporary content-ish title until Gemini
-    const first = content[0]
-    title = `${truncateLabel(first, 28)} and ${n - 1} more`
-    const summaryParts = content.slice(0, 2)
-    summary = summaryParts.join(' · ')
-    if (n > 2 && summaryParts.length) summary += ` · +${n - 2} more`
-    summary = truncateLabel(summary, 90)
+    // Temporary until Gemini: pile-ish title, not "first line and N more"
+    const snips = content.map((t) => truncateLabel(t, 36))
+    if (snips.length === 2) {
+      title = `${snips[0]} · ${truncateLabel(snips[1], 18)}`
+    } else {
+      title = `${n} links · ${truncateLabel(snips[0], 28)}`
+    }
+    summary = truncateLabel(snips.join(' · '), 90)
   } else if (mixedKinds) {
     const parts = []
     if (hasLink) parts.push('links')

@@ -197,15 +197,21 @@ export default async function handler(req, res) {
     process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
   )
   const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
+  const anonKey = (
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    ''
+  ).trim()
+  const authKey = anonKey || serviceKey
   const geminiKey = (
     process.env.GEMINI_API_KEY ||
     process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
     ''
   ).trim()
 
-  if (!supabaseUrl || !serviceKey) {
+  if (!supabaseUrl || !authKey) {
     return json(res, 500, {
-      error: 'Server missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY',
+      error: 'Server missing SUPABASE_URL or SUPABASE_ANON_KEY / SERVICE_ROLE_KEY',
     })
   }
 
@@ -225,11 +231,12 @@ export default async function handler(req, res) {
   const items = Array.isArray(body.items) ? body.items : []
   if (!items.length) return json(res, 400, { error: 'items required' })
 
-  const admin = createClient(supabaseUrl, serviceKey, {
+  const authClient = createClient(supabaseUrl, authKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
-  const { data: userData, error: userErr } = await admin.auth.getUser(token)
+  const { data: userData, error: userErr } = await authClient.auth.getUser(token)
   if (userErr || !userData?.user) {
+    console.warn('run-copy auth failed', userErr?.message || userErr)
     return json(res, 401, { error: 'Invalid or expired token' })
   }
 
