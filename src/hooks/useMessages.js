@@ -14,12 +14,31 @@ const RECENT_WINDOW = 12
 const CHIP_DEDUP_LOOKBACK = 8
 const RECENT_LOAD_MS = 5 * 60 * 1000
 
+function niceName(author) {
+  if (!author) return ''
+  const raw = (author.display_name || '').trim()
+  if (raw && !raw.includes('@') && raw !== author.email) {
+    // "corey.martinsen" → "Corey" when it's clearly an email local-part
+    if (/^[a-z0-9._-]+$/i.test(raw) && raw.includes('.')) {
+      const first = raw.split(/[._-]/)[0]
+      return first ? first[0].toUpperCase() + first.slice(1) : raw
+    }
+    return raw
+  }
+  const local = (author.email || '').split('@')[0]
+  if (local) {
+    const first = local.split(/[._-]/)[0]
+    return first ? first[0].toUpperCase() + first.slice(1) : local
+  }
+  return ''
+}
+
 function mapRow(row, profiles = {}) {
   const author = profiles[row.author_id]
   return {
     id: row.id,
     author_id: row.author_id,
-    author_name: author?.display_name || author?.email?.split('@')[0] || 'Member',
+    author_name: niceName(author) || 'Member',
     kind: row.kind,
     body: row.body || '',
     share: row.share || null,
@@ -148,12 +167,20 @@ export function useMessages(user) {
     try {
       const { data: members } = await supabase
         .from('conversation_members')
-        .select('user_id, profiles(id, display_name, email, avatar_url)')
+        .select('user_id')
         .eq('conversation_id', CONVERSATION_ID)
 
+      const memberIds = [...new Set((members || []).map((m) => m.user_id).filter(Boolean))]
       const profiles = {}
-      for (const m of members || []) {
-        if (m.profiles) profiles[m.profiles.id] = m.profiles
+      if (memberIds.length) {
+        const { data: profileRows, error: profileErr } = await supabase
+          .from('profiles')
+          .select('id, display_name, email, avatar_url')
+          .in('id', memberIds)
+        if (profileErr) console.warn('profiles load', profileErr)
+        for (const row of profileRows || []) {
+          profiles[row.id] = row
+        }
       }
       profilesRef.current = profiles
 
