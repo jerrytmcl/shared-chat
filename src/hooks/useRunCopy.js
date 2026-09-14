@@ -79,7 +79,8 @@ export function useRunCopy(items, { enabled = true } = {}) {
         })
         if (!resp.ok) return null
         const data = await resp.json()
-        if (!data?.title) return null
+        // Only cache real Gemini copy — heuristic fallbacks must retry next visit
+        if (!data?.title || data.method !== 'gemini') return null
         const copy = {
           title: String(data.title).slice(0, 52),
           summary: String(data.summary || '').slice(0, 90),
