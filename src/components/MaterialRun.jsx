@@ -5,6 +5,7 @@ import { useRunCopy } from '../hooks/useRunCopy'
 import {
   hostnameFromUrl,
   shareDisplayLabel,
+  shareRowSummary,
   shareSecondaryLine,
   sourceMarksForItems,
   kindLabel,
@@ -44,7 +45,8 @@ function SourceMark({ mark }) {
 function RunLinkRow({ share, onJump, messageId, result }) {
   const href = share.href || share.url
   const host = href ? hostnameFromUrl(href) : ''
-  const label = shareDisplayLabel(share)
+  // Short summary for expand rows — not full tweet / not shareDisplayLabel
+  const label = shareRowSummary(share)
   const secondary = shareSecondaryLine(share)
   const inner = (
     <>

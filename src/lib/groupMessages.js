@@ -270,6 +270,63 @@ export function shareDisplayLabel(share) {
 }
 
 /**
+ * Expanded-row primary line: short summary, not full tweet unless tiny.
+ * Prefer real description/title (same weak-title rules as shareDisplayLabel).
+ * ≤110 chars → as-is; else truncate at word boundary to ~100 + ….
+ * Never bare @handle / raw url / status id when real text exists.
+ * Images/gifs/docs keep filename/kind label.
+ */
+function truncateAtWord(s, max = 100) {
+  const t = String(s || '').trim()
+  if (!t) return ''
+  if (t.length <= max) return t
+  const slice = t.slice(0, max)
+  const lastSpace = slice.lastIndexOf(' ')
+  const cut = lastSpace > Math.floor(max * 0.55) ? slice.slice(0, lastSpace) : slice
+  return `${cut.trimEnd()}…`
+}
+
+export function shareRowSummary(share) {
+  if (!share) return 'Item'
+  const kind = share.kind || 'link'
+  if (kind === 'image' || kind === 'gif' || kind === 'document') {
+    const title = (share.title || '').trim()
+    return title || kindLabel(kind)
+  }
+  const title = (share.title || '').trim()
+  const desc = (share.description || '').trim()
+  const href = share.href || share.url || ''
+
+  let text = ''
+  // Strong title first (same weak-title rules as shareDisplayLabel)
+  if (title && !titleIsWeak(title, href)) {
+    text = title
+  } else if (looksLikeRealText(desc)) {
+    text = desc
+  } else if (looksLikeRealText(title)) {
+    text = title
+  }
+
+  if (text) {
+    // Never surface bare handle / url / digits when we found real text
+    if (isBareHandle(text) || isAllDigits(text) || /^https?:\/\//i.test(text)) {
+      if (looksLikeRealText(desc) && desc !== text) {
+        text = desc
+      }
+    }
+    if (text.length <= 110) return text
+    return truncateAtWord(text, 100)
+  }
+
+  // No real content — last-resort labels (handle / nicer url)
+  if (isBareHandle(title)) return title
+  if (looksLikeRawUrlOrPath(title, href) || isAllDigits(title) || !title) {
+    return nicerLinkLabel(href || title)
+  }
+  return title || nicerLinkLabel(href) || 'Link'
+}
+
+/**
  * Small grey secondary line under the content title: "@handle · x.com" or host.
  */
 export function shareSecondaryLine(share) {
@@ -362,37 +419,37 @@ export function runCardCopy(items) {
 
   const labels = list.map((m) => shareDisplayLabel(m.share))
   const content = labels.filter((l) => isContentLabel(l))
-  // Prefer real content; fall back to handles; never prefer bare hosts
-  const human =
-    content.length > 0
-      ? content
-      : labels.filter((l) => !isWeakLabel(l) && !isAllDigits(l))
 
   let title
-  if (human.length >= 1) {
-    const first = human[0]
-    title =
-      n === 1
-        ? first
-        : `${truncateLabel(first, 28)} and ${n - 1} more`
+  let summary
+
+  if (content.length >= 1) {
+    // Real tweet/article text available — temporary content-ish title until Gemini
+    const first = content[0]
+    title = `${truncateLabel(first, 28)} and ${n - 1} more`
+    const summaryParts = content.slice(0, 2)
+    summary = summaryParts.join(' · ')
+    if (n > 2 && summaryParts.length) summary += ` · +${n - 2} more`
+    summary = truncateLabel(summary, 90)
   } else if (mixedKinds) {
     const parts = []
     if (hasLink) parts.push('links')
     if (hasMedia) parts.push(kinds.has('gif') && !kinds.has('image') ? 'gifs' : 'images')
     if (hasDoc) parts.push('files')
     title = `${n} things · ${parts.join(' & ')}`
+    summary = 'Open for details'
   } else {
+    // Only weak labels (@handles / hosts) — never "@A and N more" spam
     const kindNames = [...kinds].map((k) => kindLabel(k).toLowerCase() + 's')
-    title =
-      kindNames.length === 1 ? `${n} ${kindNames[0]}` : `${n} shared items`
+    if (kindNames.length === 1 && kinds.has('link')) {
+      title = `${n} links`
+    } else if (kindNames.length === 1) {
+      title = `${n} ${kindNames[0]}`
+    } else {
+      title = `${n} links`
+    }
+    summary = 'Open for details'
   }
-
-  const summaryParts = (
-    content.length ? content : human.length ? human : labels.filter((l) => !isAllDigits(l))
-  ).slice(0, 2)
-  let summary = summaryParts.join(' · ')
-  if (n > 2 && summaryParts.length) summary += ` · +${n - 2} more`
-  summary = truncateLabel(summary, 90)
 
   return { title: truncateLabel(title, 52), summary }
 }

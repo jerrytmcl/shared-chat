@@ -13,7 +13,7 @@ function fingerprintItems(items) {
       if (!s) return m.id || ''
       const id = s.id || s.href || m.id || ''
       const t = String(s.title || '').slice(0, 48)
-      const d = String(s.description || '').slice(0, 80)
+      const d = String(s.description || '').slice(0, 120)
       return `${id}::${t}::${d}`
     })
     .filter(Boolean)
@@ -58,7 +58,7 @@ export function useRunCopy(items, { enabled = true } = {}) {
       // Send description heavily so Gemini can theme from tweet/article text
       const payloadItems = list.map((m) => ({
         title: shareDisplayLabel(m.share) || m.share?.title || '',
-        description: String(m.share?.description || '').slice(0, 280),
+        description: String(m.share?.description || '').slice(0, 200),
         kind: m.share?.kind || 'link',
         href: m.share?.href || m.share?.url || null,
         platform: m.share?.platform || null,

@@ -80,16 +80,18 @@ function heuristicCopy(items) {
       if (desc && desc !== 'Original link saved.' && desc.length >= 8 && !isBareHandle(desc)) {
         return desc
       }
+      // Skip bare @handles — better temporary "N links" than handle spam
+      if (isBareHandle(title)) return ''
       if (title && !isAllDigits(title) && !looksLikeHost(title)) return title
       return ''
     })
-    .filter((t) => t && !isAllDigits(t) && !looksLikeHost(t))
+    .filter((t) => t && !isAllDigits(t) && !looksLikeHost(t) && !isBareHandle(t))
   const n = (items || []).length
   if (!n) return { title: 'Shared', summary: '' }
   if (labels.length === 0) {
     return {
-      title: n === 1 ? 'Shared item' : `${n} shared items`,
-      summary: '',
+      title: n === 1 ? 'Shared item' : `${n} links`,
+      summary: n >= 2 ? 'Open for details' : '',
     }
   }
   const first = labels[0]
@@ -138,7 +140,7 @@ async function geminiCopy(items, apiKey) {
     kind: it.kind || 'link',
     title: String(it.title || '').slice(0, 120),
     // Emphasize description / tweet text — primary signal for theming
-    description: String(it.description || '').slice(0, 280),
+    description: String(it.description || '').slice(0, 200),
     byline: it.byline || null,
     platform: it.platform || null,
   }))
