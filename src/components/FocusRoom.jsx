@@ -135,7 +135,7 @@ export function FocusRoom({ roomId, onReturn, user }) {
           {shares.length === 0 && <p className="muted">No materials</p>}
           {shares.map((share) => (
             <div key={share.id} className="focus-material-card">
-              <Attachment share={share} compact />
+              <Attachment item={share} />
             </div>
           ))}
         </div>

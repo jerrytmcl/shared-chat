@@ -26,6 +26,8 @@ export function Icon({ name }) {
     gif: (
       <path d="M6 8h4v8H6zm6 0h2v3h3v2h-3v3h-2zM4 4h16v16H4z" />
     ),
+    'arrow-left': <path d="M5 12h14M5 12l6-6M5 12l6 6" />,
+    send: <path d="M12 19V5m-6 6 6-6 6 6" />,
   }
   return (
     <svg
