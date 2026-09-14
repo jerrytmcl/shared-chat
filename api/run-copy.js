@@ -3,7 +3,7 @@
  * Gemini title/summary for collapsed material-run cards.
  * Auth: Bearer Supabase JWT (same pattern as suggest.js).
  *
- * Body: { items: [{ title, description, kind, href, platform }] }
+ * Body: { items: [{ title, description, kind, href, platform, byline }] }
  * Returns: { title, summary }
  *
  * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY (optional)
@@ -67,9 +67,22 @@ function looksLikeHost(s) {
   )
 }
 
+function isBareHandle(s) {
+  return /^@[\w.]+$/.test(String(s || '').trim())
+}
+
 function heuristicCopy(items) {
   const labels = (items || [])
-    .map((it) => String(it.title || '').trim())
+    .map((it) => {
+      const desc = String(it.description || '').trim()
+      const title = String(it.title || '').trim()
+      // Prefer description (tweet/article text) over bare handles
+      if (desc && desc !== 'Original link saved.' && desc.length >= 8 && !isBareHandle(desc)) {
+        return desc
+      }
+      if (title && !isAllDigits(title) && !looksLikeHost(title)) return title
+      return ''
+    })
     .filter((t) => t && !isAllDigits(t) && !looksLikeHost(t))
   const n = (items || []).length
   if (!n) return { title: 'Shared', summary: '' }
@@ -124,17 +137,21 @@ async function geminiCopy(items, apiKey) {
     i,
     kind: it.kind || 'link',
     title: String(it.title || '').slice(0, 120),
-    description: String(it.description || '').slice(0, 200),
+    // Emphasize description / tweet text — primary signal for theming
+    description: String(it.description || '').slice(0, 280),
+    byline: it.byline || null,
     platform: it.platform || null,
   }))
 
   const system = `You write short card titles for a private 2-person chat dump of shared links/files.
 Given shared items, return JSON only: {"title":string,"summary":string}
 Rules:
-- title: max ~6 words, what the content is about
-- summary: one line, max ~14 words
-- Do NOT list hostnames (x.com, substack.com, etc.) or raw numeric IDs — favicons already show sources
-- Focus on topics, authors, or themes across the items
+- Use descriptions and tweet/article text as the primary signal for what was shared
+- title: thematic (~6 words max) — WHAT the content is about (topics/themes), not who posted
+- summary: one line (~14 words) summarizing WHAT was shared across the items
+- FORBIDDEN: listing @handles only; listing domains/hostnames (x.com, substack.com, etc.)
+- Favicons already show sources — never put hostnames in title or summary
+- Prefer themes like "AI design threads" over "@Stefan and 2 more"
 - Never invent facts not hinted by the titles/descriptions`
 
   const user = JSON.stringify({ items: catalog })

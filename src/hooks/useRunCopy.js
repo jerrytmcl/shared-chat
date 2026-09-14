@@ -5,9 +5,17 @@ import { runCardCopy, shareDisplayLabel } from '../lib/groupMessages'
 const cache = new Map()
 const inflight = new Map()
 
+/** Fingerprint includes titles+descriptions so enrich triggers a Gemini re-run. */
 function fingerprintItems(items) {
   return (items || [])
-    .map((m) => m.share?.id || m.share?.href || m.id || '')
+    .map((m) => {
+      const s = m.share
+      if (!s) return m.id || ''
+      const id = s.id || s.href || m.id || ''
+      const t = String(s.title || '').slice(0, 48)
+      const d = String(s.description || '').slice(0, 80)
+      return `${id}::${t}::${d}`
+    })
     .filter(Boolean)
     .join('|')
 }
@@ -47,12 +55,14 @@ export function useRunCopy(items, { enabled = true } = {}) {
         return
       }
 
+      // Send description heavily so Gemini can theme from tweet/article text
       const payloadItems = list.map((m) => ({
         title: shareDisplayLabel(m.share) || m.share?.title || '',
-        description: m.share?.description || '',
+        description: String(m.share?.description || '').slice(0, 280),
         kind: m.share?.kind || 'link',
         href: m.share?.href || m.share?.url || null,
         platform: m.share?.platform || null,
+        byline: m.share?.byline || m.share?.metadata?.byline || null,
       }))
 
       const promise = (async () => {

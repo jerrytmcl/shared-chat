@@ -5,6 +5,7 @@ import { useRunCopy } from '../hooks/useRunCopy'
 import {
   hostnameFromUrl,
   shareDisplayLabel,
+  shareSecondaryLine,
   sourceMarksForItems,
   kindLabel,
 } from '../lib/groupMessages'
@@ -44,6 +45,7 @@ function RunLinkRow({ share, onJump, messageId, result }) {
   const href = share.href || share.url
   const host = href ? hostnameFromUrl(href) : ''
   const label = shareDisplayLabel(share)
+  const secondary = shareSecondaryLine(share)
   const inner = (
     <>
       <span className="run-row-icon">
@@ -65,7 +67,7 @@ function RunLinkRow({ share, onJump, messageId, result }) {
       </span>
       <span className="run-row-copy">
         <strong>{label}</strong>
-        {host ? <small>{host}</small> : null}
+        {secondary ? <small>{secondary}</small> : host ? <small>{host}</small> : null}
       </span>
       <Icon name="chevron" />
     </>

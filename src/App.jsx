@@ -10,6 +10,7 @@ import { DebugLogPanel } from './components/DebugLogPanel'
 import { AuthScreen } from './components/AuthScreen'
 import { useAuth } from './hooks/useAuth'
 import { useMessages } from './hooks/useMessages'
+import { useEnrichShares } from './hooks/useEnrichShares'
 import { groupMessages, formatTime } from './lib/groupMessages'
 import './style.css'
 
@@ -53,6 +54,7 @@ function ChatShell({ auth }) {
     sendFiles,
     materializePackage,
   } = useMessages(user)
+  useEnrichShares(messages, setMessages)
   const [text, setText] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [buildNoteOpen, setBuildNoteOpen] = useState(false)
@@ -262,12 +264,12 @@ function ChatShell({ auth }) {
                       ) : (
                         <>
                           {m.body && (
-                            <p className="bubble">
-                              {m.body}
+                            <div className="bubble">
+                              <span className="bubble-body">{m.body}</span>
                               <time className="bubble-time">
                                 {formatTime(m.created_at)}
                               </time>
-                            </p>
+                            </div>
                           )}
                           {m.source_ids?.length > 0 && (
                             <details className="shared-results">

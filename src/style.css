@@ -275,15 +275,23 @@
 }
 
 
+/* Time under text — flex column, no float crunching the bubble */
 .bubble {
+  display: flex;
+  flex-direction: column;
   position: relative;
-  padding-bottom: 2px;
+  padding-bottom: 4px;
+}
+.bubble-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .bubble-time {
-  float: right;
-  margin: 2px 0 -1px 10px;
+  float: none;
+  align-self: flex-end;
+  margin: 4px 0 0;
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.2;
   opacity: 0.7;
   white-space: nowrap;
   letter-spacing: 0;
@@ -296,6 +304,14 @@
 .message:not(.own) .bubble-time {
   color: #8a8a93;
   opacity: 1;
+}
+
+/* Slightly more space between messages; continuation still tight */
+.message {
+  margin-top: 18px;
+}
+.message.continuation {
+  margin-top: 4px;
 }
 
 .material-run {
@@ -434,7 +450,7 @@
   margin-left: 4px;
 }
 
-/* WhatsApp-style reactions: smile trigger on hover, picker on click, pills when present */
+/* WhatsApp-style reactions: smile trigger on hover, sticky picker on click */
 .message {
   position: relative;
 }
@@ -449,9 +465,12 @@
   min-height: 0;
   pointer-events: none;
 }
+.message-reactions.has-pills,
+.message-reactions.is-open {
+  pointer-events: auto;
+}
 .message-reactions.has-pills {
   margin-top: -10px;
-  pointer-events: auto;
 }
 .reaction-pills {
   display: flex;
@@ -488,7 +507,7 @@
   font-weight: 500;
 }
 
-/* Smile button outside bubble — WhatsApp desktop */
+/* Outline smile trigger outside bubble — WhatsApp desktop */
 .react-trigger {
   position: absolute;
   top: 8px;
@@ -500,12 +519,16 @@
   border: 1px solid #e2e5ea;
   background: #fff;
   box-shadow: 0 1px 4px #00000018;
+  color: #6b7280;
   font-size: 14px;
   line-height: 1;
   opacity: 0;
   pointer-events: none;
-  z-index: 3;
-  transition: opacity 0.12s ease;
+  z-index: 6;
+  transition: opacity 0.12s ease, background 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 /* Others: trigger to the right of content; own: to the left */
 .message:not(.own) .message-content > .message-reactions .react-trigger,
@@ -520,6 +543,7 @@
 }
 .message:hover .react-trigger,
 .message:focus-within .react-trigger,
+.message-reactions.is-open .react-trigger,
 .react-trigger.is-open {
   opacity: 1;
   pointer-events: auto;
@@ -527,8 +551,10 @@
 .react-trigger:hover,
 .react-trigger.is-open {
   background: #f7f8fa;
+  color: #374151;
 }
 
+/* Picker stays next to trigger; high z-index; visible while is-open even if mouse left message */
 .reaction-picker {
   position: absolute;
   top: 40px;
@@ -541,16 +567,21 @@
   box-shadow: 0 4px 16px #00000022;
   width: max-content;
   max-width: min(280px, 90vw);
-  z-index: 5;
+  z-index: 20;
   pointer-events: auto;
 }
-.message:not(.own) .reaction-picker {
+.message:not(.own) .reaction-picker,
+.message:not(.own) .message-reactions .reaction-picker {
   left: calc(100% + 6px);
   right: auto;
 }
-.message.own .reaction-picker {
+.message.own .reaction-picker,
+.message.own .message-reactions .reaction-picker {
   right: calc(100% + 6px);
   left: auto;
+}
+.message-reactions.is-open .reaction-picker {
+  pointer-events: auto;
 }
 .reaction-pick {
   border: 0;

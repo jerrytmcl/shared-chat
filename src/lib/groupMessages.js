@@ -133,6 +133,33 @@ function isXHost(host) {
   return h === 'x.com' || h === 'twitter.com' || h.endsWith('.twitter.com')
 }
 
+function isBareHandle(s) {
+  return /^@[\w.]+$/.test(String(s || '').trim())
+}
+
+function isUselessDescription(d) {
+  const t = String(d || '').trim()
+  return (
+    !t ||
+    t === 'Original link saved.' ||
+    t === 'Post on X' ||
+    t === 'Link'
+  )
+}
+
+/** Description looks like real tweet/article text (not placeholder / handle / url). */
+export function looksLikeRealText(d) {
+  const t = String(d || '').trim()
+  if (isUselessDescription(t)) return false
+  if (isBareHandle(t)) return false
+  if (isAllDigits(t)) return false
+  if (/^https?:\/\//i.test(t)) return false
+  // Prefer text with spaces or decent length
+  if (t.length >= 12) return true
+  if (/\s/.test(t) && t.length >= 6) return true
+  return false
+}
+
 function looksLikeRawUrlOrPath(title, href) {
   if (!title) return true
   const t = title.trim()
@@ -143,7 +170,6 @@ function looksLikeRawUrlOrPath(title, href) {
       const u = new URL(href)
       const hostPath = u.hostname.replace(/^www\./, '') + u.pathname
       if (t === hostPath || t === u.hostname + u.pathname) return true
-      // title is just a status id that appears in the path
       if (isAllDigits(t) && u.pathname.includes(t)) return true
     }
   } catch {
@@ -169,24 +195,15 @@ export function nicerLinkLabel(href) {
         !isAllDigits(user) &&
         !/^(i|home|explore|search|intent|share|status)$/i.test(user)
       ) {
-        const statusIdx = segments.findIndex((s) => s.toLowerCase() === 'status')
-        if (statusIdx >= 0) {
-          return `@${user}`
-        }
-        if (segments.length === 1 || segments[1]?.toLowerCase() === 'status') {
-          return `@${user}`
-        }
         return `@${user}`
       }
       return 'Post on X'
     }
 
-    // Prefer non-digit path segments (skip status ids, numeric slugs)
     const useful = segments.filter((s) => !isAllDigits(s) && !/^status$/i.test(s))
     if (useful.length >= 1) {
       const first = useful[0]
       if (first.startsWith('@')) return first
-      // Substack @handle style: /@handle/...
       if (segments[0]?.startsWith('@')) {
         return segments[0]
       }
@@ -206,9 +223,19 @@ export function nicerLinkLabel(href) {
   }
 }
 
+function titleIsWeak(title, href) {
+  const t = (title || '').trim()
+  if (!t) return true
+  if (isAllDigits(t)) return true
+  if (looksLikeRawUrlOrPath(t, href)) return true
+  if (isBareHandle(t)) return true
+  if (/^(x\.com|twitter\.com|substack\.com)$/i.test(t)) return true
+  return false
+}
+
 /**
- * Human label for a share (collapsed run + flat rows).
- * Treats all-digit titles as raw and re-derives from href.
+ * Content-first label for a share (collapsed run + flat rows).
+ * Prefer real tweet/article text over bare @handles / urls / ids.
  */
 export function shareDisplayLabel(share) {
   if (!share) return 'Item'
@@ -217,13 +244,60 @@ export function shareDisplayLabel(share) {
     const title = (share.title || '').trim()
     return truncateLabel(title || kindLabel(kind))
   }
-  // link
   const title = (share.title || '').trim()
+  const desc = (share.description || '').trim()
   const href = share.href || share.url || ''
-  if (looksLikeRawUrlOrPath(title, href) || isAllDigits(title)) {
+
+  // Strong title: not handle / url / path / digits
+  if (title && !titleIsWeak(title, href)) {
+    return truncateLabel(title)
+  }
+
+  // Real description beats weak title (@handle, path, etc.)
+  if (looksLikeRealText(desc)) {
+    return truncateLabel(desc)
+  }
+
+  // Handle-only title is weak but better than host/path
+  if (isBareHandle(title)) {
+    return truncateLabel(title)
+  }
+
+  if (looksLikeRawUrlOrPath(title, href) || isAllDigits(title) || !title) {
     return truncateLabel(nicerLinkLabel(href || title))
   }
   return truncateLabel(title || nicerLinkLabel(href) || 'Link')
+}
+
+/**
+ * Small grey secondary line under the content title: "@handle · x.com" or host.
+ */
+export function shareSecondaryLine(share) {
+  if (!share) return ''
+  const href = share.href || share.url || ''
+  const host = href ? hostnameFromUrl(href) : ''
+  let byline =
+    (share.byline || share.metadata?.byline || '').trim() || ''
+
+  if (!byline && href && isXHost(host)) {
+    const fromUrl = nicerLinkLabel(href)
+    if (isBareHandle(fromUrl)) byline = fromUrl
+  }
+
+  // If title itself is a bare handle and we have no byline, use it
+  if (!byline && isBareHandle(share.title)) {
+    byline = share.title.trim()
+  }
+
+  if (byline && host) {
+    // Avoid "@foo · @foo"
+    if (byline.toLowerCase() === `@${host}` || byline.toLowerCase() === host) {
+      return byline
+    }
+    return `${byline} · ${host}`
+  }
+  if (byline) return byline
+  return host || ''
 }
 
 function kindsPresent(items) {
@@ -243,9 +317,16 @@ function isWeakLabel(label) {
   return false
 }
 
+function isContentLabel(label) {
+  const t = String(label || '').trim()
+  if (!t || isWeakLabel(t)) return false
+  if (isBareHandle(t)) return false
+  return true
+}
+
 /**
  * Living collapsed title/summary for a material-run as items grow.
- * Prefer human labels over hostnames (favicons already show sites).
+ * Prefer content (tweet/article text) over @handles and hostnames.
  */
 export function runCardCopy(items) {
   const list = Array.isArray(items) ? items : []
@@ -255,15 +336,19 @@ export function runCardCopy(items) {
   if (n === 1) {
     const share = list[0].share
     const title = shareDisplayLabel(share)
-    const host = share?.href ? hostnameFromUrl(share.href) : ''
-    const kind = kindLabel(share?.kind || 'link')
-    let summary = host || kind
-    if (share?.kind === 'link' && host) {
-      summary = `${host} · open`
-    } else if (share?.kind === 'image' || share?.kind === 'gif') {
-      summary = `${kind} · view`
-    } else if (share?.kind === 'document') {
-      summary = `${kind} · open`
+    const secondary = shareSecondaryLine(share)
+    const desc = (share?.description || '').trim()
+    let summary = secondary
+    // If title came from a short label and desc has more, hint at content
+    if (
+      looksLikeRealText(desc) &&
+      truncateLabel(desc) !== title &&
+      !isBareHandle(title)
+    ) {
+      // secondary line is enough under a content title
+      summary = secondary || kindLabel(share?.kind || 'link')
+    } else if (!summary) {
+      summary = kindLabel(share?.kind || 'link')
     }
     return { title, summary: truncateLabel(summary, 90) }
   }
@@ -276,7 +361,12 @@ export function runCardCopy(items) {
     [hasLink, hasMedia, hasDoc].filter(Boolean).length >= 2
 
   const labels = list.map((m) => shareDisplayLabel(m.share))
-  const human = labels.filter((l) => !isWeakLabel(l) && !isAllDigits(l))
+  const content = labels.filter((l) => isContentLabel(l))
+  // Prefer real content; fall back to handles; never prefer bare hosts
+  const human =
+    content.length > 0
+      ? content
+      : labels.filter((l) => !isWeakLabel(l) && !isAllDigits(l))
 
   let title
   if (human.length >= 1) {
@@ -297,10 +387,9 @@ export function runCardCopy(items) {
       kindNames.length === 1 ? `${n} ${kindNames[0]}` : `${n} shared items`
   }
 
-  const summaryParts = (human.length ? human : labels.filter((l) => !isAllDigits(l))).slice(
-    0,
-    2
-  )
+  const summaryParts = (
+    content.length ? content : human.length ? human : labels.filter((l) => !isAllDigits(l))
+  ).slice(0, 2)
   let summary = summaryParts.join(' · ')
   if (n > 2 && summaryParts.length) summary += ` · +${n - 2} more`
   summary = truncateLabel(summary, 90)

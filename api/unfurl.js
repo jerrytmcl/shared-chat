@@ -1,6 +1,6 @@
 /**
  * POST /api/unfurl
- * Best-effort link metadata for share titles.
+ * Best-effort link metadata for share titles — content-first.
  * Auth: Bearer Supabase JWT (same pattern as suggest.js).
  *
  * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -86,6 +86,17 @@ function handleFromXUrl(url) {
   }
 }
 
+function truncate(s, max) {
+  const t = String(s || '').trim()
+  if (!t) return ''
+  if (t.length <= max) return t
+  return `${t.slice(0, max - 1).trimEnd()}…`
+}
+
+function isBareHandle(s) {
+  return /^@[\w.]+$/.test(String(s || '').trim())
+}
+
 async function fetchWithTimeout(url, opts = {}) {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
@@ -108,23 +119,31 @@ async function unfurlX(url) {
   let handle = handleFromXUrl(authorUrl) || handleFromXUrl(url)
   if (handle) handle = handle.replace(/^@/, '')
 
-  const tweetText = stripHtml(data.html || '').slice(0, 140)
-  let title
-  if (handle) title = `@${handle}`
-  else if (authorName) title = authorName
-  else title = 'Post on X'
+  const tweetText = stripHtml(data.html || '')
+  const byline = handle ? `@${handle}` : authorName ? authorName : ''
 
-  if (handle && authorName && authorName.toLowerCase() !== handle.toLowerCase()) {
-    title = `@${handle}`
+  // Content-first: title = tweet text, NOT bare @handle
+  let title
+  let description
+  if (tweetText) {
+    title = truncate(tweetText, 90)
+    description = truncate(tweetText, 200)
+  } else {
+    title = byline || (authorName ? `Post by ${authorName}` : 'Post on X')
+    description = ''
   }
-  // Prefer "Post by @handle" when we only have a vague author
-  if (!handle && authorName) title = `Post by ${authorName}`
-  else if (handle) title = `@${handle}`
+
+  // Never return title that is only a bare @handle when tweet text exists
+  if (isBareHandle(title) && tweetText) {
+    title = truncate(tweetText, 90)
+  }
 
   return {
     title,
-    description: tweetText || 'Post on X',
+    description,
+    byline: byline || undefined,
     platform: 'X',
+    site: 'x.com',
   }
 }
 
@@ -148,18 +167,36 @@ async function unfurlOg(url) {
     metaContent(html, 'twitter:description') ||
     metaContent(html, 'description') ||
     ''
+  const siteName = metaContent(html, 'og:site_name') || ''
+  const author =
+    metaContent(html, 'author') ||
+    metaContent(html, 'article:author') ||
+    ''
+
   let platform
+  let host = ''
   try {
-    const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+    host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
     if (host === 'substack.com' || host.endsWith('.substack.com')) platform = 'Substack'
     else platform = host
   } catch {
     platform = undefined
   }
+
+  const byline = author || siteName || (platform && platform !== host ? platform : '') || undefined
+
+  let finalTitle = title.slice(0, 120) || undefined
+  // Never return bare @handle as title when OG text exists
+  if (finalTitle && isBareHandle(finalTitle) && description) {
+    finalTitle = truncate(description, 90)
+  }
+
   return {
-    title: title.slice(0, 120) || undefined,
+    title: finalTitle,
     description: description.slice(0, 240) || undefined,
+    byline,
     platform,
+    site: host || undefined,
   }
 }
 
@@ -228,7 +265,9 @@ export default async function handler(req, res) {
         result = {
           title: handle ? `@${handle}` : 'Post on X',
           description: '',
+          byline: handle ? `@${handle}` : undefined,
           platform: 'X',
+          site: 'x.com',
         }
       }
     } else {
@@ -243,7 +282,9 @@ export default async function handler(req, res) {
     return json(res, 200, {
       title: String(result.title).slice(0, 120),
       description: String(result.description || '').slice(0, 240),
+      byline: result.byline ? String(result.byline).slice(0, 80) : undefined,
       platform: result.platform || undefined,
+      site: result.site || undefined,
     })
   } catch (e) {
     console.error('unfurl failed', e)

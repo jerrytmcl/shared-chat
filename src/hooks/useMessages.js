@@ -602,6 +602,7 @@ export function useMessages(user) {
       if (!user) return
       let platform = platformFromUrl(href)
       let title
+      let byline = ''
       try {
         const u = new URL(href)
         title = u.hostname + u.pathname
@@ -629,6 +630,7 @@ export function useMessages(user) {
               if (meta?.title) title = String(meta.title).slice(0, 120)
               if (meta?.description) description = String(meta.description).slice(0, 240)
               if (meta?.platform) platform = meta.platform
+              if (meta?.byline) byline = String(meta.byline).slice(0, 80)
             }
           }
         } catch (e) {
@@ -661,6 +663,8 @@ export function useMessages(user) {
               title,
               description,
               href,
+              byline: byline || undefined,
+              metadata: byline ? { byline } : undefined,
             },
             created_at: new Date().toISOString(),
           },
@@ -683,6 +687,7 @@ export function useMessages(user) {
           description,
           href,
           platform,
+          ...(byline ? { metadata: { byline } } : {}),
         })
         .select()
         .single()

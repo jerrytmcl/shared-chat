@@ -2,10 +2,31 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🔥']
 
+function SmileOutline({ size = 16 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 14s1.5 2 3.5 2 3.5-2 3.5-2" />
+      <circle cx="9" cy="10" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="10" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
 /**
  * WhatsApp-style reactions:
- * - Smile trigger on hover (outside bubble)
- * - Picker opens from trigger click only
+ * - Outline smile trigger on hover (outside bubble)
+ * - Click trigger → picker stays open until emoji / outside / Escape
  * - Pills only when someone has reacted
  */
 export function MessageReactions({
@@ -53,7 +74,6 @@ export function MessageReactions({
     <div
       ref={rootRef}
       className={`message-reactions${aggregated.length ? ' has-pills' : ''}${pickerOpen ? ' is-open' : ''}`}
-      onMouseLeave={() => setPickerOpen(false)}
     >
       {aggregated.length > 0 && (
         <div className="reaction-pills" role="group" aria-label="Reactions">
@@ -81,7 +101,7 @@ export function MessageReactions({
           setPickerOpen((v) => !v)
         }}
       >
-        😊
+        <SmileOutline />
       </button>
       {pickerOpen && (
         <div className="reaction-picker" role="toolbar" aria-label="Add reaction">
