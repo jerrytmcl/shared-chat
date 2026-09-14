@@ -2,10 +2,29 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
 import { runCardCopy, shareDisplayLabel, truncateAtWord } from '../lib/groupMessages'
 
+const STORAGE_KEY = 'shared-chat:run-copy:v2'
+const MAX_ENTRIES = 60
+
 const cache = new Map()
 const inflight = new Map()
+let storageHydrated = false
 
-/** Fingerprint includes titles+descriptions so enrich triggers a Gemini re-run. */
+function softSummary(text) {
+  const s = String(text || '').trim()
+  if (!s) return ''
+  return truncateAtWord(s, 140)
+}
+
+/** Stable key: share ids only — survives refresh and minor enrich text tweaks. */
+function idKeyItems(items) {
+  return (items || [])
+    .map((m) => m.share?.id || m.id || m.share?.href || '')
+    .filter(Boolean)
+    .sort()
+    .join(',')
+}
+
+/** Content fingerprint — when this changes we revalidate in background. */
 function fingerprintItems(items) {
   return (items || [])
     .map((m) => {
@@ -20,33 +39,82 @@ function fingerprintItems(items) {
     .join('|')
 }
 
-function softSummary(text) {
-  const s = String(text || '').trim()
-  if (!s) return ''
-  // Prefer complete words — never mid-clause hard cut
-  return truncateAtWord(s, 140)
+function hydrateFromStorage() {
+  if (storageHydrated || typeof localStorage === 'undefined') return
+  storageHydrated = true
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return
+    for (const [key, value] of Object.entries(parsed)) {
+      if (value?.title) cache.set(key, value)
+    }
+  } catch {
+    /* ignore corrupt cache */
+  }
 }
 
+function persistCache() {
+  if (typeof localStorage === 'undefined') return
+  try {
+    const entries = [...cache.entries()]
+    const trimmed = entries.slice(Math.max(0, entries.length - MAX_ENTRIES))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(trimmed)))
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function remember(fp, ids, copy) {
+  const entry = {
+    ...copy,
+    savedAt: Date.now(),
+    contentFp: fp,
+  }
+  cache.set(fp, entry)
+  if (ids) cache.set(`ids:${ids}`, entry)
+  persistCache()
+}
+
+function lookup(fp, ids) {
+  hydrateFromStorage()
+  if (fp && cache.has(fp)) return { copy: cache.get(fp), exact: true }
+  if (ids && cache.has(`ids:${ids}`)) return { copy: cache.get(`ids:${ids}`), exact: false }
+  return { copy: null, exact: false }
+}
+
+hydrateFromStorage()
+
 /**
- * Heuristic immediately; for n>=2 fire Gemini /api/run-copy right away.
- * While a new fingerprint is loading, keep prior Gemini copy (no "4 links" flash).
+ * Heuristic immediately; Gemini for n>=2.
+ * Persists to localStorage so refresh does not regenerate.
+ * Exact content hit → no network. Id-only hit → show stale, revalidate in background.
  */
 export function useRunCopy(items, { enabled = true } = {}) {
   const list = Array.isArray(items) ? items : []
   const heuristic = useMemo(() => runCardCopy(list), [list])
   const fp = useMemo(() => fingerprintItems(list), [list])
-  const [remote, setRemote] = useState(() => (fp && cache.has(fp) ? cache.get(fp) : null))
+  const ids = useMemo(() => idKeyItems(list), [list])
+
+  const [remote, setRemote] = useState(() => {
+    const { copy } = lookup(fp, ids)
+    return copy
+  })
 
   useEffect(() => {
     if (!enabled) {
       setRemote(null)
       return undefined
     }
-    if (fp && cache.has(fp)) {
-      setRemote(cache.get(fp))
-      return undefined
+
+    const hit = lookup(fp, ids)
+    if (hit.copy) {
+      setRemote(hit.copy)
+      // Exact content match — skip Gemini entirely
+      if (hit.exact) return undefined
     }
-    // Keep stale Gemini until the new one lands — do NOT clear to heuristic
+
     if (list.length < 2 || !fp) return undefined
     if (!isSupabaseConfigured || !supabase) return undefined
 
@@ -95,7 +163,7 @@ export function useRunCopy(items, { enabled = true } = {}) {
           summary: softSummary(data.summary || ''),
           itemSummaries,
         }
-        cache.set(fp, copy)
+        remember(fp, ids, copy)
         return copy
       })()
 
@@ -115,8 +183,8 @@ export function useRunCopy(items, { enabled = true } = {}) {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fingerprint drives refresh
-  }, [fp, enabled])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fp, ids, enabled])
 
   const hasGemini = Boolean(remote?.title)
   return {
