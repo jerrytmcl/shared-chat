@@ -246,6 +246,104 @@ async function unfurlX(url) {
 }
 
 
+function isYouTubeUrl(url) {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+    return (
+      h === 'youtube.com' ||
+      h === 'youtu.be' ||
+      h === 'm.youtube.com' ||
+      h === 'music.youtube.com' ||
+      h.endsWith('.youtube.com')
+    )
+  } catch {
+    return false
+  }
+}
+
+function normalizeYouTubeUrl(url) {
+  try {
+    const u = new URL(url)
+    // youtu.be/VIDEO_ID → youtube.com/watch?v=VIDEO_ID
+    if (u.hostname === 'youtu.be') {
+      const videoId = u.pathname.slice(1).split('/')[0].split('?')[0]
+      if (videoId) {
+        return `https://www.youtube.com/watch?v=${videoId}`
+      }
+    }
+    // Already a proper youtube.com URL
+    return url
+  } catch {
+    return url
+  }
+}
+
+async function unfurlYouTube(url) {
+  // Normalize youtu.be short links
+  const normalized = normalizeYouTubeUrl(url)
+  
+  // Try YouTube oEmbed first
+  try {
+    const oembed = `https://www.youtube.com/oembed?url=${encodeURIComponent(normalized)}&format=json`
+    const resp = await fetchWithTimeout(oembed, {
+      headers: { Accept: 'application/json', 'User-Agent': UA },
+    })
+    if (resp.ok) {
+      const data = await resp.json()
+      const title = (data.title || '').trim()
+      const authorName = (data.author_name || '').trim()
+      
+      if (title) {
+        let description = ''
+        if (authorName) {
+          description = `YouTube · ${authorName}`
+        } else {
+          description = 'YouTube'
+        }
+        
+        console.log('unfurlYouTube path=oembed', { url: url.slice(0, 80), title: title.slice(0, 40) })
+        return {
+          title: title.slice(0, 120),
+          description,
+          byline: authorName || undefined,
+          platform: 'YouTube',
+          site: 'youtube.com',
+          _path: 'oembed',
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('unfurlYouTube oembed failed', e.message || e)
+  }
+
+  // Fall back to OG scraping
+  try {
+    const result = await unfurlOg(normalized)
+    if (result.title && result.title !== 'YouTube') {
+      console.log('unfurlYouTube path=og-fallback', { url: url.slice(0, 80) })
+      return {
+        ...result,
+        platform: 'YouTube',
+        site: 'youtube.com',
+        _path: 'og-fallback',
+      }
+    }
+  } catch (e) {
+    console.warn('unfurlYouTube og fallback failed', e.message || e)
+  }
+
+  // Last resort fallback
+  console.log('unfurlYouTube path=fallback', { url: url.slice(0, 80) })
+  return {
+    title: 'YouTube video',
+    description: 'Preview unavailable — open to view.',
+    byline: undefined,
+    platform: 'YouTube',
+    site: 'youtube.com',
+    _path: 'fallback',
+  }
+}
+
 function isInstagramUrl(url) {
   try {
     const h = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
@@ -442,6 +540,8 @@ export default async function handler(req, res) {
     let result
     if (isXHost(parsed.hostname)) {
       result = await unfurlX(url)
+    } else if (isYouTubeUrl(url)) {
+      result = await unfurlYouTube(url)
     } else if (isInstagramUrl(url)) {
       result = await unfurlInstagram(url)
     } else {
