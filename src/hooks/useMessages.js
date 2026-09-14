@@ -8,6 +8,11 @@ import {
 import { DEMO_MESSAGES, DEMO_USER } from '../lib/demoData'
 import { platformFromUrl, detectKindFromFile } from '../lib/groupMessages'
 
+const SUGGEST_DEBOUNCE_MS = 3000
+const RECENT_WINDOW = 12
+const CHIP_DEDUP_LOOKBACK = 8
+const RECENT_LOAD_MS = 5 * 60 * 1000
+
 function mapRow(row, profiles = {}) {
   const author = profiles[row.author_id]
   return {
@@ -19,14 +24,43 @@ function mapRow(row, profiles = {}) {
     share: row.share || null,
     share_id: row.share_id,
     package_id: row.package_id,
+    package: row.package || null,
+    packageShares: row.packageShares || null,
     chip_payload: row.chip_payload,
     source_ids: row.source_ids,
     created_at: row.created_at,
   }
 }
 
+function publicUrl(storagePath) {
+  if (!storagePath || !supabase) return null
+  return supabase.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath).data
+    .publicUrl
+}
+
+function enrichShare(share) {
+  if (!share) return null
+  return {
+    ...share,
+    url: share.storage_path ? publicUrl(share.storage_path) : share.url || null,
+  }
+}
+
+function fingerprintWindow(messages) {
+  const slice = messages.slice(-RECENT_WINDOW)
+  const ids = slice.map((m) => m.id).filter(Boolean)
+  const texts = slice
+    .map((m) => (m.body || '').trim().toLowerCase().slice(0, 80))
+    .join('|')
+  return `${ids.join(',')}:${texts}`.slice(0, 400)
+}
+
+function hasRecentChip(messages) {
+  return messages.slice(-CHIP_DEDUP_LOOKBACK).some((m) => m.kind === 'chip')
+}
+
 /**
- * Messages + original shares.
+ * Messages + original shares + Phase 3 chip/package.
  * Realtime when Supabase configured; local demo state otherwise.
  */
 export function useMessages(user) {
@@ -34,6 +68,56 @@ export function useMessages(user) {
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const profilesRef = useRef({})
+  const messagesRef = useRef([])
+  const suggestTimer = useRef(null)
+  const suggestInFlight = useRef(false)
+  const lastFingerprint = useRef('')
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  const resolvePackages = useCallback(async (mapped) => {
+    if (!supabase) return mapped
+    const packageIds = [
+      ...new Set(
+        mapped.filter((m) => m.kind === 'package' && m.package_id).map((m) => m.package_id)
+      ),
+    ]
+    if (!packageIds.length) return mapped
+
+    const { data: pkgs } = await supabase
+      .from('living_packages')
+      .select('id, title, summary, share_ids, provenance, created_at')
+      .in('id', packageIds)
+
+    const pkgById = Object.fromEntries((pkgs || []).map((p) => [p.id, p]))
+    const allShareIds = [
+      ...new Set((pkgs || []).flatMap((p) => p.share_ids || [])),
+    ]
+    let shareById = {}
+    if (allShareIds.length) {
+      const { data: shares } = await supabase
+        .from('original_shares')
+        .select(
+          'id, kind, title, description, href, storage_path, mime_type, platform, metadata'
+        )
+        .in('id', allShareIds)
+      shareById = Object.fromEntries(
+        (shares || []).map((s) => [s.id, enrichShare(s)])
+      )
+    }
+
+    return mapped.map((m) => {
+      if (m.kind !== 'package' || !m.package_id) return m
+      const pkg = pkgById[m.package_id]
+      if (!pkg) return m
+      const packageShares = (pkg.share_ids || [])
+        .map((id) => shareById[id])
+        .filter(Boolean)
+      return { ...m, package: pkg, packageShares }
+    })
+  }, [])
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase || !user || user.id === DEMO_USER.id) {
@@ -70,19 +154,11 @@ export function useMessages(user) {
 
       if (error) throw error
 
-      const mapped = (rows || []).map((r) => {
-        const share = r.share
-          ? {
-              ...r.share,
-              url: r.share.storage_path
-                ? supabase.storage
-                    .from(STORAGE_BUCKET)
-                    .getPublicUrl(r.share.storage_path).data.publicUrl
-                : null,
-            }
-          : null
+      let mapped = (rows || []).map((r) => {
+        const share = enrichShare(r.share)
         return mapRow({ ...r, share }, profiles)
       })
+      mapped = await resolvePackages(mapped)
       setMessages(mapped)
     } catch (e) {
       console.error(e)
@@ -91,7 +167,7 @@ export function useMessages(user) {
     } finally {
       setLoading(false)
     }
-  }, [user])
+  }, [user, resolvePackages])
 
   useEffect(() => {
     load()
@@ -122,21 +198,41 @@ export function useMessages(user) {
               .select('*')
               .eq('id', row.share_id)
               .single()
-            if (data) {
-              share = {
-                ...data,
-                url: data.storage_path
-                  ? supabase.storage
-                      .from(STORAGE_BUCKET)
-                      .getPublicUrl(data.storage_path).data.publicUrl
-                  : null,
-              }
-            }
+            if (data) share = enrichShare(data)
+          }
+          let enriched = mapRow({ ...row, share }, profilesRef.current)
+          if (enriched.kind === 'package' && enriched.package_id) {
+            const [resolved] = await resolvePackages([enriched])
+            enriched = resolved
           }
           setMessages((prev) => {
             if (prev.some((m) => m.id === row.id)) return prev
-            return [...prev, mapRow({ ...row, share }, profilesRef.current)]
+            return [...prev, enriched]
           })
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${CONVERSATION_ID}`,
+        },
+        (payload) => {
+          const row = payload.new
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === row.id
+                ? {
+                    ...m,
+                    body: row.body ?? m.body,
+                    chip_payload: row.chip_payload ?? m.chip_payload,
+                    package_id: row.package_id ?? m.package_id,
+                  }
+                : m
+            )
+          )
         }
       )
       .subscribe()
@@ -144,18 +240,16 @@ export function useMessages(user) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [user])
+  }, [user, resolvePackages])
 
   const ensureMember = useCallback(async () => {
     if (!supabase || !user || user.id === DEMO_USER.id) return { error: null }
-    // Prefer insert; ignore duplicate. Avoid upsert (needs UPDATE RLS).
     const { error } = await supabase.from('conversation_members').insert({
       conversation_id: CONVERSATION_ID,
       user_id: user.id,
       role: 'member',
     })
     if (error && error.code !== '23505') {
-      // 23505 = unique_violation (already a member)
       return { error }
     }
     return { error: null }
@@ -170,12 +264,137 @@ export function useMessages(user) {
     })
   }, [user, ensureMember])
 
+  const requestSuggest = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase || !user || user.id === DEMO_USER.id) {
+      return
+    }
+    if (suggestInFlight.current) return
+
+    const current = messagesRef.current
+    if (hasRecentChip(current)) return
+
+    const fp = fingerprintWindow(current)
+    if (fp && fp === lastFingerprint.current) return
+
+    const recent = current.slice(-RECENT_WINDOW).map((m) => ({
+      id: m.id,
+      kind: m.kind,
+      body: m.body || '',
+      author_id: m.author_id,
+      share: m.share
+        ? { title: m.share.title, description: m.share.description }
+        : null,
+    }))
+
+    // Need some conversational signal
+    const hasText = recent.some((m) => m.kind === 'text' && (m.body || '').trim())
+    if (!hasText) return
+
+    suggestInFlight.current = true
+    try {
+      const { data: sessionData } = await supabase.auth.getSession()
+      const token = sessionData?.session?.access_token
+      if (!token) return
+
+      const resp = await fetch('/api/suggest', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          conversationId: CONVERSATION_ID,
+          recentMessages: recent,
+          authorId: user.id,
+        }),
+      })
+
+      if (!resp.ok) {
+        // Silent fail — quiet bot
+        console.warn('suggest failed', resp.status)
+        return
+      }
+
+      const result = await resp.json()
+      if (!result?.suggest || !Array.isArray(result.shareIds) || result.shareIds.length < 2) {
+        return
+      }
+
+      // Re-check dedup after async
+      const latest = messagesRef.current
+      if (hasRecentChip(latest)) return
+      const sameFp = fingerprintWindow(latest)
+      if (
+        latest.some(
+          (m) =>
+            m.kind === 'chip' &&
+            m.chip_payload?.fingerprint &&
+            m.chip_payload.fingerprint === sameFp
+        )
+      ) {
+        return
+      }
+
+      const chipPayload = {
+        title: result.title || 'Related saves',
+        summary: result.summary || '',
+        shareIds: result.shareIds,
+        fingerprint: sameFp,
+        provenance: result.provenance || {},
+        accepted: false,
+      }
+
+      const { error } = await supabase.from('messages').insert({
+        conversation_id: CONVERSATION_ID,
+        author_id: user.id,
+        kind: 'chip',
+        body: chipPayload.title,
+        chip_payload: chipPayload,
+      })
+
+      if (error) {
+        console.warn('chip insert failed', error.message)
+        return
+      }
+      lastFingerprint.current = sameFp
+    } catch (e) {
+      console.warn('suggest error', e)
+    } finally {
+      suggestInFlight.current = false
+    }
+  }, [user])
+
+  const scheduleSuggest = useCallback(() => {
+    if (suggestTimer.current) clearTimeout(suggestTimer.current)
+    suggestTimer.current = setTimeout(() => {
+      requestSuggest()
+    }, SUGGEST_DEBOUNCE_MS)
+  }, [requestSuggest])
+
+  useEffect(() => {
+    return () => {
+      if (suggestTimer.current) clearTimeout(suggestTimer.current)
+    }
+  }, [])
+
+  // After load: if last message is recent, maybe suggest
+  useEffect(() => {
+    if (loading || !user || user.id === DEMO_USER.id || !isSupabaseConfigured) return
+    const last = messages[messages.length - 1]
+    if (!last?.created_at) return
+    const age = Date.now() - new Date(last.created_at).getTime()
+    if (age >= 0 && age < RECENT_LOAD_MS && last.kind !== 'chip' && last.kind !== 'package') {
+      scheduleSuggest()
+    }
+    // only on load completion
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading])
+
   const sendText = useCallback(
     async (text) => {
       const value = text.trim()
       if (!value || !user) return
 
-      // Newline-separated URLs → link shares
       const lines = value.split(/\n/).map((x) => x.trim()).filter(Boolean)
       const urls = lines.map((line) => {
         try {
@@ -190,6 +409,7 @@ export function useMessages(user) {
         for (const url of urls) {
           await sendLinkShare(url.href)
         }
+        scheduleSuggest()
         return
       }
 
@@ -251,8 +471,9 @@ export function useMessages(user) {
             : m
         )
       )
+      scheduleSuggest()
     },
-    [user, ensureMember]
+    [user, ensureMember, scheduleSuggest]
   )
 
   const sendLinkShare = useCallback(
@@ -428,6 +649,123 @@ export function useMessages(user) {
     [user, ensureMember]
   )
 
+  const materializePackage = useCallback(
+    async (chipMessage) => {
+      if (!user || !chipMessage) return
+      const payload = chipMessage.chip_payload || {}
+      if (payload.accepted) return
+      const shareIds = Array.isArray(payload.shareIds) ? payload.shareIds : []
+      if (shareIds.length < 1) {
+        setNotice('Chip has no share refs.')
+        return
+      }
+
+      if (!isSupabaseConfigured || !supabase || user.id === DEMO_USER.id) {
+        const pkgId = crypto.randomUUID()
+        const shares = shareIds
+          .map((id) => {
+            const src = messagesRef.current.find(
+              (m) => m.share?.id === id || m.share_id === id
+            )
+            return src?.share || null
+          })
+          .filter(Boolean)
+        setMessages((ms) => [
+          ...ms.map((m) =>
+            m.id === chipMessage.id
+              ? {
+                  ...m,
+                  chip_payload: { ...payload, accepted: true },
+                }
+              : m
+          ),
+          {
+            id: crypto.randomUUID(),
+            author_id: user.id,
+            author_name: user.display_name || 'You',
+            kind: 'package',
+            body: payload.title || 'Package',
+            package_id: pkgId,
+            package: {
+              id: pkgId,
+              title: payload.title,
+              summary: payload.summary,
+              share_ids: shareIds,
+              provenance: payload.provenance || {},
+            },
+            packageShares: shares,
+            created_at: new Date().toISOString(),
+          },
+        ])
+        return
+      }
+
+      const join = await ensureMember()
+      if (join?.error) {
+        setNotice(`Could not join conversation: ${join.error.message}`)
+        return
+      }
+
+      const provenance = {
+        ...(payload.provenance || {}),
+        chipMessageId: chipMessage.id,
+        materializedAt: new Date().toISOString(),
+        materializedBy: user.id,
+        triggerMessageIds:
+          payload.provenance?.triggerMessageIds ||
+          messagesRef.current.slice(-RECENT_WINDOW).map((m) => m.id),
+      }
+
+      const { data: pkg, error: pkgErr } = await supabase
+        .from('living_packages')
+        .insert({
+          conversation_id: CONVERSATION_ID,
+          created_by: user.id,
+          title: payload.title || 'Package',
+          summary: payload.summary || '',
+          share_ids: shareIds,
+          provenance,
+        })
+        .select('id, title, summary, share_ids, provenance, created_at')
+        .single()
+
+      if (pkgErr) {
+        setNotice(`Package failed: ${pkgErr.message}`)
+        return
+      }
+
+      const { error: msgErr } = await supabase.from('messages').insert({
+        conversation_id: CONVERSATION_ID,
+        author_id: user.id,
+        kind: 'package',
+        body: pkg.title || '',
+        package_id: pkg.id,
+      })
+
+      if (msgErr) {
+        setNotice(`Package message failed: ${msgErr.message}`)
+        return
+      }
+
+      // Best-effort mark chip accepted
+      await supabase
+        .from('messages')
+        .update({
+          chip_payload: { ...payload, accepted: true },
+        })
+        .eq('id', chipMessage.id)
+
+      setMessages((ms) =>
+        ms.map((m) =>
+          m.id === chipMessage.id
+            ? { ...m, chip_payload: { ...payload, accepted: true } }
+            : m
+        )
+      )
+    },
+    [user, ensureMember]
+  )
+
   return {
     messages,
     setMessages,
@@ -437,6 +775,7 @@ export function useMessages(user) {
     sendText,
     sendLinkShare,
     sendFiles,
+    materializePackage,
     reload: load,
   }
 }

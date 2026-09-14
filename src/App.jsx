@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Icon } from './components/Icon'
 import { MaterialRun } from './components/MaterialRun'
+import { SuggestionChip } from './components/SuggestionChip'
+import { LivingPackage } from './components/LivingPackage'
 import { SearchPanel } from './components/SearchPanel'
 import { Feedback } from './components/Feedback'
 import { AuthScreen } from './components/AuthScreen'
@@ -38,15 +40,39 @@ export default function App() {
 
 function ChatShell({ auth }) {
   const { user, isDemo, signOut } = auth
-  const { messages, setMessages, notice, setNotice, sendText, sendFiles } =
-    useMessages(user)
+  const {
+    messages,
+    setMessages,
+    notice,
+    setNotice,
+    sendText,
+    sendFiles,
+    materializePackage,
+  } = useMessages(user)
   const [text, setText] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [buildNoteOpen, setBuildNoteOpen] = useState(false)
   const [search, setSearch] = useState(null)
   const [drag, setDrag] = useState(false)
+  const [chipBusy, setChipBusy] = useState(false)
   const list = useRef(null)
   const file = useRef(null)
+  const [toastVisible, setToastVisible] = useState(false)
+
+  // Auto-dismiss notices above the composer (fade ~5s)
+  useEffect(() => {
+    if (!notice) {
+      setToastVisible(false)
+      return undefined
+    }
+    setToastVisible(true)
+    const fadeTimer = setTimeout(() => setToastVisible(false), 4500)
+    const clearTimer = setTimeout(() => setNotice(''), 5000)
+    return () => {
+      clearTimeout(fadeTimer)
+      clearTimeout(clearTimer)
+    }
+  }, [notice, setNotice])
 
   useEffect(() => {
     list.current?.scrollTo({
@@ -78,6 +104,16 @@ function ChatShell({ auth }) {
     setText('')
   }
 
+  async function onShowChip(chipMessage) {
+    if (chipBusy || chipMessage?.chip_payload?.accepted) return
+    setChipBusy(true)
+    try {
+      await materializePackage(chipMessage)
+    } finally {
+      setChipBusy(false)
+    }
+  }
+
   return (
     <>
       <header>
@@ -106,7 +142,6 @@ function ChatShell({ auth }) {
           )}
         </nav>
       </header>
-
 
       <main>
         <section
@@ -137,23 +172,42 @@ function ChatShell({ auth }) {
                 </span>
               </div>
               {groupMessages(messages).map((m, index, groups) => {
-                const own = isOwn(m.items ? m.items[0] : m)
+                const isChip = !m.items && m.kind === 'chip'
+                const isPackage = !m.items && m.kind === 'package'
+                const own = isChip
+                  ? false
+                  : isOwn(m.items ? m.items[0] : m)
                 const prev = groups[index - 1]
                 const prevAuthor = prev?.items
                   ? prev.items[0].author_id
-                  : prev?.author_id
-                const authorId = m.items ? m.items[0].author_id : m.author_id
-                const continuation = prevAuthor === authorId
+                  : prev?.kind === 'chip'
+                    ? null
+                    : prev?.author_id
+                const authorId = m.items
+                  ? m.items[0].author_id
+                  : isChip
+                    ? null
+                    : m.author_id
+                const continuation =
+                  !isChip && prevAuthor != null && prevAuthor === authorId
 
                 return (
                   <article
                     id={m.items ? `run-${m.id}` : m.id}
-                    className={`message ${own ? 'own' : ''} ${continuation ? 'continuation' : ''}`}
+                    className={`message ${own ? 'own' : ''} ${continuation ? 'continuation' : ''} ${isChip ? 'is-chip' : ''} ${isPackage ? 'is-package' : ''}`}
                     key={m.id}
                   >
                     <div className="message-content">
                       {m.items ? (
                         <MaterialRun items={m.items} />
+                      ) : isChip ? (
+                        <SuggestionChip
+                          message={m}
+                          onShow={onShowChip}
+                          busy={chipBusy}
+                        />
+                      ) : isPackage ? (
+                        <LivingPackage message={m} />
                       ) : (
                         <>
                           {m.body && <p className="bubble">{m.body}</p>}
@@ -191,6 +245,21 @@ function ChatShell({ auth }) {
             </div>
           </div>
 
+          {notice && (
+            <div
+              className={`composer-toast${toastVisible ? ' is-in' : ' is-out'}`}
+              role="status"
+            >
+              {notice}
+              <button
+                type="button"
+                onClick={() => setNotice('')}
+                aria-label="Dismiss notice"
+              >
+                ×
+              </button>
+            </div>
+          )}
           <form className="composer" onSubmit={send}>
             <input
               ref={file}
@@ -281,19 +350,6 @@ function ChatShell({ auth }) {
           />
         )}
       </main>
-
-      {notice && (
-        <div className="toast" role="status">
-          {notice}
-          <button
-            type="button"
-            onClick={() => setNotice('')}
-            aria-label="Dismiss notice"
-          >
-            ×
-          </button>
-        </div>
-      )}
 
       {buildNoteOpen && (
         <Feedback

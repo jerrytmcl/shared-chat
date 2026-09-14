@@ -121,3 +121,106 @@
 .note-who input { border: 1px solid #d8dde5; border-radius: 8px; padding: 10px 12px; font-size: 15px; color: inherit; }
 .note-who-stamped { margin: 0 0 12px; font-size: 13px; }
 .note-who-stamped strong { color: inherit; }
+
+
+/* Notice above composer */
+.composer-toast {
+  margin: 0 auto 8px;
+  width: calc(100% - 64px);
+  max-width: 760px;
+  background: #202b3b;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 0 4px 16px #0002;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity .35s ease, transform .35s ease;
+}
+.composer-toast.is-in { opacity: 1; transform: translateY(0); }
+.composer-toast.is-out { opacity: 0; transform: translateY(4px); }
+.composer-toast button {
+  border: 0;
+  background: none;
+  color: #fff;
+  padding: 0 2px;
+  font-size: 16px;
+  line-height: 1;
+  margin-left: auto;
+  flex: none;
+}
+@media (max-width: 700px) {
+  .composer-toast { width: calc(100% - 24px); font-size: 11px; padding: 7px 10px; }
+}
+
+/* Phase 3 — quiet suggestion chips + living packages */
+.message.is-chip {
+  justify-content: center;
+  margin-top: 14px;
+}
+.message.is-chip .message-content {
+  max-width: 420px;
+  width: 100%;
+}
+.message.is-chip .message-meta {
+  justify-content: center;
+}
+.suggestion-chip {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  border: 1px solid #d7e4f7;
+  background: #f3f8ff;
+  border-radius: 14px;
+  padding: 11px 14px;
+  color: inherit;
+  box-shadow: none;
+}
+.suggestion-chip:hover:not(:disabled) {
+  background: #eaf3ff;
+}
+.suggestion-chip:disabled {
+  opacity: 0.75;
+  cursor: default;
+}
+.suggestion-chip.is-accepted {
+  background: #f0f1f4;
+  border-color: #e1e3e8;
+}
+.chip-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.chip-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.chip-copy span {
+  font-size: 11px;
+  line-height: 1.4;
+  color: #617083;
+}
+.chip-action {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: #087ef5;
+  white-space: nowrap;
+}
+.suggestion-chip.is-accepted .chip-action {
+  color: #8a8a93;
+}
+.message.is-package .message-content {
+  max-width: 420px;
+}

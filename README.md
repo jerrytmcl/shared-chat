@@ -175,11 +175,11 @@ If the remote already has a README/license, pull/rebase or force only if you int
 2. Framework: Vite (auto-detected)
 3. Build: `npm run build` · Output: `dist`
 4. **Environment variables** (Production + Preview):
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-   - (optional) `VITE_CONVERSATION_ID`
+   - Client: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional `VITE_CONVERSATION_ID`
+   - Server (`/api/suggest`, never `VITE_`): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, recommended `GEMINI_API_KEY`
 5. Deploy
 6. Add the Vercel URL to Supabase **Authentication → URL Configuration** (Site URL + Redirect URLs)
+7. Phase 3: apply `supabase/migrations/004_chip_package_helpers.sql` — see `APPLY.md`
 
 ---
 
@@ -188,8 +188,9 @@ If the remote already has a README/license, pull/rebase or force only if you int
 | Implemented (Phase 1) | Deferred |
 | --- | --- |
 | Vite + React UI matching prototype | Semantic search / AI retrieval |
-| Material-run collapse/expand | AI suggestion chips UI |
-| Demo mode without env | Living package materialization UI |
+| Material-run collapse/expand | Multi-room / multi-conversation |
+| Demo mode without env | Package composition from GIFs |
+| Suggestion chips + living packages (Phase 3) | Semantic search / vector index |
 | Supabase client + migrations | Multi-room / multi-conversation |
 | Magic link + Google auth flows | Package composition from GIFs |
 | One hardcoded conversation | Automatic AI chat persona |

@@ -5,19 +5,22 @@ import { kindLabel } from '../lib/groupMessages'
 /**
  * Expandable material-run card for consecutive attachment-only messages
  * from one author. UI grouping only — not a DB entity.
+ * Optional title/summary overrides used by living package messages.
  */
-export function MaterialRun({ items, onJump, result = false }) {
+export function MaterialRun({ items, onJump, result = false, title: titleProp, summary: summaryProp }) {
   const kinds = [
     ...new Set(
       items.map((m) => m.share?.platform || kindLabel(m.share?.kind) || 'Link')
     ),
   ]
   const demo = items.every((m) => /^m[3-6]$/.test(m.id))
-  const title = demo
-    ? 'Ideas for the camera move'
-    : items.length === 1
-      ? items[0].share?.title
-      : `${items.length} things shared`
+  const title =
+    titleProp ||
+    (demo
+      ? 'Ideas for the camera move'
+      : items.length === 1
+        ? items[0].share?.title
+        : `${items.length} things shared`)
 
   const counts = ['link', 'image', 'document', 'gif']
     .map((k) => {
@@ -28,6 +31,18 @@ export function MaterialRun({ items, onJump, result = false }) {
     })
     .filter(Boolean)
     .join(' · ')
+
+  const subtitle =
+    summaryProp ||
+    (demo
+      ? items.length === 4
+        ? 'Camera references, a setup screenshot, and timing notes.'
+        : items
+            .map((m) =>
+              m.share?.kind === 'image' ? 'Setup screenshot' : m.share?.title
+            )
+            .join(' · ')
+      : counts)
 
   return (
     <details className="material-run">
@@ -54,20 +69,9 @@ export function MaterialRun({ items, onJump, result = false }) {
         </span>
         <span className="run-copy">
           <strong>{title}</strong>
-          <span>
-            {demo
-              ? items.length === 4
-                ? 'Camera references, a setup screenshot, and timing notes.'
-                : items
-                    .map((m) =>
-                      m.share?.kind === 'image'
-                        ? 'Setup screenshot'
-                        : m.share?.title
-                    )
-                    .join(' · ')
-              : counts}
-          </span>
-          {demo && <small>{counts}</small>}
+          <span>{subtitle}</span>
+          {demo && !summaryProp && <small>{counts}</small>}
+          {summaryProp && counts ? <small>{counts}</small> : null}
         </span>
         <Icon name="chevron" />
       </summary>
