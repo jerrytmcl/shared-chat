@@ -120,6 +120,7 @@ export function kindLabel(kind) {
 /**
  * Unique source marks for a material-run stack (max 6).
  * Links use the site favicon from the hostname — no per-brand icons.
+ * Deduplicates by hostname so multiple links from the same host show one favicon.
  */
 export function sourceMarksForItems(items) {
   const out = []
@@ -134,7 +135,8 @@ export function sourceMarksForItems(items) {
       mark = { type: 'icon', name: 'camera', label: kindLabel(share.kind) }
     } else if (share.href) {
       const host = hostnameFromUrl(share.href)
-      key = host || share.href
+      // Always use hostname as key for deduplication; fallback to URL only if host extraction fails
+      key = host ? `host:${host}` : `url:${share.href}`
       mark = host
         ? { type: 'favicon', label: host, host }
         : { type: 'icon', name: 'file', label: 'Link' }

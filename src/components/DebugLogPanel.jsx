@@ -4,6 +4,7 @@ import { clearDebugLogs, subscribeDebugLogs } from '../lib/debugLog'
 
 export function DebugLogPanel({ onClose }) {
   const [logs, setLogs] = useState([])
+  const [copied, setCopied] = useState(false)
   const dialog = useRef(null)
 
   useEffect(() => subscribeDebugLogs(setLogs), [])
@@ -31,6 +32,30 @@ export function DebugLogPanel({ onClose }) {
     }
   }, [])
 
+  const handleCopy = async () => {
+    if (logs.length === 0) return
+    
+    // Build plain text log output (chronological order, oldest first)
+    const logText = [...logs]
+      .reverse()
+      .map((e) => {
+        const time = new Date(e.at).toLocaleTimeString()
+        const data = e.data != null 
+          ? (typeof e.data === 'string' ? e.data : JSON.stringify(e.data, null, 2))
+          : ''
+        return `${time} ${e.message}${data ? '\n' + data : ''}`
+      })
+      .join('\n\n')
+    
+    try {
+      await navigator.clipboard.writeText(logText)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1000)
+    } catch (err) {
+      console.error('Failed to copy logs:', err)
+    }
+  }
+
   return (
     <dialog
       ref={dialog}
@@ -56,6 +81,14 @@ export function DebugLogPanel({ onClose }) {
         Gemini steps → chip or skip.
       </p>
       <div className="debug-log-actions">
+        <button
+          type="button"
+          className="plain-button"
+          onClick={handleCopy}
+          disabled={logs.length === 0}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
         <button
           type="button"
           className="plain-button"
