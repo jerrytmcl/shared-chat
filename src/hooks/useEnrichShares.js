@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
 
 const PLACEHOLDER_DESC = 'Original link saved.'
 const CONCURRENCY = 2
+const RETRY_AFTER_MS = 30_000
 
 function isAllDigits(s) {
   return /^\d{6,}$/.test(String(s || '').trim())
@@ -10,6 +11,16 @@ function isAllDigits(s) {
 
 function isBareHandle(s) {
   return /^@[\w.]+$/.test(String(s || '').trim())
+}
+
+function isWeakDesc(desc) {
+  const d = String(desc || '').trim()
+  if (!d) return true
+  if (d === PLACEHOLDER_DESC) return true
+  if (d === 'Post on X') return true
+  if (isBareHandle(d)) return true
+  if (d.length < 8) return true
+  return false
 }
 
 function titleLooksRaw(title, href) {
@@ -31,6 +42,8 @@ function titleLooksRaw(title, href) {
 
 /**
  * Whether a link share still needs /api/unfurl backfill.
+ * Bare @handle title always needs enrich even if description looks nonempty
+ * but is also weak/handle-like.
  */
 export function needsEnrich(share) {
   if (!share) return false
@@ -42,43 +55,61 @@ export function needsEnrich(share) {
   const title = (share.title || '').trim()
   const desc = (share.description || '').trim()
 
-  if (!desc || desc === PLACEHOLDER_DESC) return true
+  if (isWeakDesc(desc)) return true
   if (titleLooksRaw(title, href)) return true
-  // Bare @handle title with empty/useless description
-  if (
-    isBareHandle(title) &&
-    (!desc ||
-      desc === PLACEHOLDER_DESC ||
-      desc === 'Post on X' ||
-      desc.length < 8)
-  ) {
-    return true
-  }
+  // Bare @handle title always needs enrich
+  if (isBareHandle(title)) return true
   return false
 }
 
 /**
  * After messages load, unfurl weak link shares (concurrency 2),
  * patch local state + original_shares so content sticks.
- * Tracks attempted ids so we don't loop forever.
+ * Only marks attempted on success; failures go to a failed set and retry once after 30s.
  */
 export function useEnrichShares(messages, setMessages) {
   const attemptedRef = useRef(new Set())
+  /** @type {React.MutableRefObject<Map<string, { at: number, retries: number }>>} */
+  const failedRef = useRef(new Map())
   const runningRef = useRef(false)
+  const [retryTick, setRetryTick] = useState(0)
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase || !setMessages) return undefined
     if (!Array.isArray(messages) || !messages.length) return undefined
 
+    const now = Date.now()
     const weak = []
+    let soonestRetry = null
+
     for (const m of messages) {
       const share = m.share
       if (!share?.id) continue
       if (attemptedRef.current.has(share.id)) continue
-      if (needsEnrich(share)) {
-        weak.push({ share })
+      if (!needsEnrich(share)) continue
+
+      const fail = failedRef.current.get(share.id)
+      if (fail) {
+        if (fail.retries >= 1) {
+          // Already retried once — wait for a later messages change / manual refresh
+          continue
+        }
+        const readyAt = fail.at + RETRY_AFTER_MS
+        if (now < readyAt) {
+          const wait = readyAt - now
+          if (soonestRetry == null || wait < soonestRetry) soonestRetry = wait
+          continue
+        }
       }
+      weak.push({ share })
     }
+
+    let retryTimer
+    if (soonestRetry != null && !weak.length) {
+      retryTimer = setTimeout(() => setRetryTick((t) => t + 1), soonestRetry + 20)
+      return () => clearTimeout(retryTimer)
+    }
+
     if (!weak.length) return undefined
     if (runningRef.current) return undefined
 
@@ -93,12 +124,18 @@ export function useEnrichShares(messages, setMessages) {
           const idx = cursor++
           if (idx >= weak.length) return
           const { share } = weak[idx]
-          attemptedRef.current.add(share.id)
           const href = share.href || share.url
           try {
             const { data: sessionData } = await supabase.auth.getSession()
             const token = sessionData?.session?.access_token
-            if (!token) continue
+            if (!token) {
+              const prev = failedRef.current.get(share.id)
+              failedRef.current.set(share.id, {
+                at: Date.now(),
+                retries: prev ? prev.retries + 1 : 0,
+              })
+              continue
+            }
 
             const resp = await fetch('/api/unfurl', {
               method: 'POST',
@@ -108,9 +145,23 @@ export function useEnrichShares(messages, setMessages) {
               },
               body: JSON.stringify({ url: href }),
             })
-            if (!resp.ok) continue
+            if (!resp.ok) {
+              const prev = failedRef.current.get(share.id)
+              failedRef.current.set(share.id, {
+                at: Date.now(),
+                retries: prev ? prev.retries + 1 : 0,
+              })
+              continue
+            }
             const meta = await resp.json()
-            if (!meta?.title && !meta?.description) continue
+            if (!meta?.title && !meta?.description) {
+              const prev = failedRef.current.get(share.id)
+              failedRef.current.set(share.id, {
+                at: Date.now(),
+                retries: prev ? prev.retries + 1 : 0,
+              })
+              continue
+            }
 
             const title = meta.title
               ? String(meta.title).slice(0, 120)
@@ -122,7 +173,21 @@ export function useEnrichShares(messages, setMessages) {
             const platform = meta.platform || share.platform
             const byline = meta.byline || share.byline || share.metadata?.byline
 
+            // Still bare-handle with no real text — treat as failure (allow retry)
+            if (isBareHandle(title) && isWeakDesc(description)) {
+              const prev = failedRef.current.get(share.id)
+              failedRef.current.set(share.id, {
+                at: Date.now(),
+                retries: prev ? prev.retries + 1 : 0,
+              })
+              continue
+            }
+
             if (cancelled) return
+
+            // Mark attempted ONLY after successful meta applied
+            attemptedRef.current.add(share.id)
+            failedRef.current.delete(share.id)
 
             setMessages((prev) =>
               prev.map((m) => {
@@ -144,12 +209,36 @@ export function useEnrichShares(messages, setMessages) {
               })
             )
 
-            await supabase
+            const patch = {
+              title,
+              description,
+              ...(byline
+                ? {
+                    metadata: {
+                      ...(share.metadata || {}),
+                      byline,
+                    },
+                  }
+                : {}),
+            }
+            const { error } = await supabase
               .from('original_shares')
-              .update({ title, description })
+              .update(patch)
               .eq('id', share.id)
+            if (error) {
+              console.warn(
+                'enrich share DB update failed (check RLS / migration 006)',
+                share.id,
+                error
+              )
+            }
           } catch (e) {
             console.warn('enrich share failed', share.id, e)
+            const prev = failedRef.current.get(share.id)
+            failedRef.current.set(share.id, {
+              at: Date.now(),
+              retries: prev ? prev.retries + 1 : 0,
+            })
           }
         }
       }
@@ -157,11 +246,25 @@ export function useEnrichShares(messages, setMessages) {
       const n = Math.min(CONCURRENCY, weak.length)
       await Promise.all(Array.from({ length: n }, () => worker()))
       runningRef.current = false
+
+      // If anything is waiting for a retry, schedule tick
+      let nextWait = null
+      const t = Date.now()
+      for (const [, fail] of failedRef.current) {
+        if (fail.retries >= 1) continue
+        const wait = fail.at + RETRY_AFTER_MS - t
+        if (wait > 0 && (nextWait == null || wait < nextWait)) nextWait = wait
+        else if (wait <= 0) nextWait = 0
+      }
+      if (nextWait != null && !cancelled) {
+        setTimeout(() => setRetryTick((x) => x + 1), Math.max(20, nextWait))
+      }
     })()
 
     return () => {
       cancelled = true
       runningRef.current = false
+      if (retryTimer) clearTimeout(retryTimer)
     }
-  }, [messages, setMessages])
+  }, [messages, setMessages, retryTick])
 }

@@ -86,6 +86,25 @@ function handleFromXUrl(url) {
   }
 }
 
+/** Extract status id from x.com / twitter.com URLs. */
+function statusIdFromXUrl(url) {
+  try {
+    const u = new URL(url)
+    const segs = u.pathname.split('/').filter(Boolean)
+    const statusIdx = segs.findIndex((s) => /^status$/i.test(s))
+    if (statusIdx >= 0 && segs[statusIdx + 1] && /^\d+$/.test(segs[statusIdx + 1])) {
+      return segs[statusIdx + 1]
+    }
+    // /i/status/{id}
+    if (segs[0] === 'i' && /^status$/i.test(segs[1] || '') && /^\d+$/.test(segs[2] || '')) {
+      return segs[2]
+    }
+  } catch {
+    /* ignore */
+  }
+  return ''
+}
+
 function truncate(s, max) {
   const t = String(s || '').trim()
   if (!t) return ''
@@ -101,13 +120,40 @@ async function fetchWithTimeout(url, opts = {}) {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
   try {
-    return await fetch(url, { ...opts, signal: ctrl.signal })
+    // Always follow redirects (Twitter oEmbed returns 301 → publish.x.com)
+    return await fetch(url, { ...opts, signal: ctrl.signal, redirect: 'follow' })
   } finally {
     clearTimeout(t)
   }
 }
 
-async function unfurlX(url) {
+function xMetaFromTweetText(tweetText, handle, authorName) {
+  const byline = handle ? `@${handle}` : authorName ? authorName : ''
+  // Collapse whitespace/newlines so titles are single-line snippets
+  const text = String(tweetText || '').replace(/\s+/g, ' ').trim()
+  let title
+  let description
+  if (text) {
+    title = truncate(text, 90)
+    description = truncate(text, 200)
+  } else {
+    title = byline || (authorName ? `Post by ${authorName}` : 'Post on X')
+    description = ''
+  }
+  // Never return bare @handle as title when tweet text exists
+  if (isBareHandle(title) && text) {
+    title = truncate(text, 90)
+  }
+  return {
+    title,
+    description,
+    byline: byline || undefined,
+    platform: 'X',
+    site: 'x.com',
+  }
+}
+
+async function unfurlXViaOembed(url) {
   const oembed = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&omit_script=true`
   const resp = await fetchWithTimeout(oembed, {
     headers: { Accept: 'application/json', 'User-Agent': UA },
@@ -120,30 +166,82 @@ async function unfurlX(url) {
   if (handle) handle = handle.replace(/^@/, '')
 
   const tweetText = stripHtml(data.html || '')
-  const byline = handle ? `@${handle}` : authorName ? authorName : ''
+  if (!tweetText) throw new Error('oEmbed empty html')
+  return xMetaFromTweetText(tweetText, handle, authorName)
+}
 
-  // Content-first: title = tweet text, NOT bare @handle
-  let title
-  let description
-  if (tweetText) {
-    title = truncate(tweetText, 90)
-    description = truncate(tweetText, 200)
-  } else {
-    title = byline || (authorName ? `Post by ${authorName}` : 'Post on X')
-    description = ''
+async function unfurlXViaFxTwitter(url) {
+  const statusId = statusIdFromXUrl(url)
+  if (!statusId) throw new Error('no status id for FxTwitter')
+
+  const handleHint = handleFromXUrl(url)
+  const candidates = []
+  if (handleHint) {
+    candidates.push(`https://api.fxtwitter.com/${encodeURIComponent(handleHint)}/status/${statusId}`)
+  }
+  candidates.push(`https://api.fxtwitter.com/status/${statusId}`)
+
+  let lastErr
+  for (const fxUrl of candidates) {
+    try {
+      const resp = await fetchWithTimeout(fxUrl, {
+        headers: { Accept: 'application/json', 'User-Agent': UA },
+      })
+      if (!resp.ok) {
+        lastErr = new Error(`FxTwitter ${resp.status}`)
+        continue
+      }
+      const data = await resp.json()
+      const tweet = data.tweet || data
+      const tweetText = String(tweet.text || tweet.raw_text?.text || '').trim()
+      if (!tweetText) {
+        lastErr = new Error('FxTwitter empty text')
+        continue
+      }
+      const screen =
+        tweet.author?.screen_name ||
+        tweet.author?.username ||
+        handleHint ||
+        ''
+      const handle = String(screen).replace(/^@/, '')
+      const authorName = tweet.author?.name || ''
+      return xMetaFromTweetText(tweetText, handle, authorName)
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr || new Error('FxTwitter failed')
+}
+
+async function unfurlX(url) {
+  // 1) Twitter/X oEmbed with redirect follow
+  try {
+    const result = await unfurlXViaOembed(url)
+    console.log('unfurlX path=oembed', { url: url.slice(0, 80), title: (result.title || '').slice(0, 40) })
+    return { ...result, _path: 'oembed' }
+  } catch (e) {
+    console.warn('unfurlX oembed failed', e.message || e)
   }
 
-  // Never return title that is only a bare @handle when tweet text exists
-  if (isBareHandle(title) && tweetText) {
-    title = truncate(tweetText, 90)
+  // 2) FxTwitter fallback
+  try {
+    const result = await unfurlXViaFxTwitter(url)
+    console.log('unfurlX path=fxtwitter', { url: url.slice(0, 80), title: (result.title || '').slice(0, 40) })
+    return { ...result, _path: 'fxtwitter' }
+  } catch (e) {
+    console.warn('unfurlX fxtwitter failed', e.message || e)
   }
 
+  // Last resort — bare handle (no tweet text available)
+  const handle = handleFromXUrl(url)
+  console.log('unfurlX path=fallback-handle', { url: url.slice(0, 80) })
   return {
-    title,
-    description,
-    byline: byline || undefined,
+    title: handle ? `@${handle}` : 'Post on X',
+    description: '',
+    byline: handle ? `@${handle}` : undefined,
     platform: 'X',
     site: 'x.com',
+    _path: 'fallback-handle',
   }
 }
 
@@ -153,7 +251,6 @@ async function unfurlOg(url) {
       Accept: 'text/html,application/xhtml+xml',
       'User-Agent': UA,
     },
-    redirect: 'follow',
   })
   if (!resp.ok) throw new Error(`fetch ${resp.status}`)
   const html = (await resp.text()).slice(0, 200_000)
@@ -257,19 +354,7 @@ export default async function handler(req, res) {
   try {
     let result
     if (isXHost(parsed.hostname)) {
-      try {
-        result = await unfurlX(url)
-      } catch (e) {
-        console.warn('x oembed failed', e.message || e)
-        const handle = handleFromXUrl(url)
-        result = {
-          title: handle ? `@${handle}` : 'Post on X',
-          description: '',
-          byline: handle ? `@${handle}` : undefined,
-          platform: 'X',
-          site: 'x.com',
-        }
-      }
+      result = await unfurlX(url)
     } else {
       result = await unfurlOg(url)
     }
@@ -277,6 +362,11 @@ export default async function handler(req, res) {
     if (!result.title) {
       const handle = handleFromXUrl(url)
       result.title = handle ? `@${handle}` : parsed.hostname.replace(/^www\./, '')
+    }
+
+    // Never promote bare @handle when we somehow have description text
+    if (isBareHandle(result.title) && result.description && !isBareHandle(result.description)) {
+      result.title = truncate(result.description, 90)
     }
 
     return json(res, 200, {
@@ -291,3 +381,6 @@ export default async function handler(req, res) {
     return json(res, 502, { error: String(e.message || e).slice(0, 200) })
   }
 }
+
+/** Exported for local verification scripts (not used by Vercel handler). */
+export { unfurlX, unfurlXViaFxTwitter, unfurlXViaOembed, statusIdFromXUrl, fetchWithTimeout }
