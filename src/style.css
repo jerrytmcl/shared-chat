@@ -224,3 +224,32 @@
 .message.is-package .message-content {
   max-width: 420px;
 }
+
+.debug-log-dialog {
+  width: min(560px, calc(100vw - 24px));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px 22px;
+  max-height: 80dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 90px #0002;
+}
+.debug-log-dialog::backdrop { background: #202c3d45; backdrop-filter: blur(2px); }
+.debug-log-help { font-size: 12px; margin: 0 0 10px; }
+.debug-log-actions { margin-bottom: 8px; }
+.debug-log-list { overflow: auto; flex: 1; min-height: 200px; max-height: 55dvh; border-top: 1px solid var(--line); padding-top: 8px; }
+.debug-log-entry { padding: 10px 0; border-bottom: 1px solid #eeeef2; }
+.debug-log-entry time { display: block; font-size: 10px; color: var(--muted); }
+.debug-log-entry strong { display: block; font-size: 13px; margin-top: 2px; }
+.debug-log-entry pre {
+  margin: 6px 0 0;
+  font-size: 11px;
+  background: #f7f8fa;
+  padding: 8px;
+  border-radius: 8px;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+}

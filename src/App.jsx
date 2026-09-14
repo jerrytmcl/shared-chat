@@ -5,6 +5,7 @@ import { SuggestionChip } from './components/SuggestionChip'
 import { LivingPackage } from './components/LivingPackage'
 import { SearchPanel } from './components/SearchPanel'
 import { Feedback } from './components/Feedback'
+import { DebugLogPanel } from './components/DebugLogPanel'
 import { AuthScreen } from './components/AuthScreen'
 import { useAuth } from './hooks/useAuth'
 import { useMessages } from './hooks/useMessages'
@@ -52,6 +53,7 @@ function ChatShell({ auth }) {
   const [text, setText] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [buildNoteOpen, setBuildNoteOpen] = useState(false)
+  const [logsOpen, setLogsOpen] = useState(false)
   const [search, setSearch] = useState(null)
   const [drag, setDrag] = useState(false)
   const [chipBusy, setChipBusy] = useState(false)
@@ -134,6 +136,9 @@ function ChatShell({ auth }) {
           </button>
           <button type="button" onClick={() => setBuildNoteOpen(true)}>
             Note for next build
+          </button>
+          <button type="button" onClick={() => setLogsOpen(true)}>
+            Logs
           </button>
           {!isDemo && (
             <button type="button" onClick={signOut}>
@@ -361,6 +366,7 @@ function ChatShell({ auth }) {
           }}
         />
       )}
+      {logsOpen && <DebugLogPanel onClose={() => setLogsOpen(false)} />}
     </>
   )
 }

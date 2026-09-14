@@ -7,8 +7,9 @@ import {
 } from '../lib/supabase'
 import { DEMO_MESSAGES, DEMO_USER } from '../lib/demoData'
 import { platformFromUrl, detectKindFromFile } from '../lib/groupMessages'
+import { debugLog } from '../lib/debugLog'
 
-const SUGGEST_DEBOUNCE_MS = 3000
+const SUGGEST_DEBOUNCE_MS = 600
 const RECENT_WINDOW = 12
 const CHIP_DEDUP_LOOKBACK = 8
 const RECENT_LOAD_MS = 5 * 60 * 1000
@@ -268,13 +269,22 @@ export function useMessages(user) {
     if (!isSupabaseConfigured || !supabase || !user || user.id === DEMO_USER.id) {
       return
     }
-    if (suggestInFlight.current) return
+    if (suggestInFlight.current) {
+      debugLog('skip: in flight')
+      return
+    }
 
     const current = messagesRef.current
-    if (hasRecentChip(current)) return
+    if (hasRecentChip(current)) {
+      debugLog('skip: recent chip already in thread')
+      return
+    }
 
     const fp = fingerprintWindow(current)
-    if (fp && fp === lastFingerprint.current) return
+    if (fp && fp === lastFingerprint.current) {
+      debugLog('skip: same fingerprint')
+      return
+    }
 
     const recent = current.slice(-RECENT_WINDOW).map((m) => ({
       id: m.id,
@@ -291,10 +301,18 @@ export function useMessages(user) {
     if (!hasText) return
 
     suggestInFlight.current = true
+    debugLog('requesting…', {
+      recentCount: recent.length,
+      hasText,
+      fingerprint: fp,
+    })
     try {
       const { data: sessionData } = await supabase.auth.getSession()
       const token = sessionData?.session?.access_token
-      if (!token) return
+      if (!token) {
+        debugLog('WARN: no session token')
+        return
+      }
 
       const resp = await fetch('/api/suggest', {
         method: 'POST',
@@ -310,13 +328,27 @@ export function useMessages(user) {
       })
 
       if (!resp.ok) {
-        // Silent fail — quiet bot
-        console.warn('suggest failed', resp.status)
+        const errBody = await resp.text().catch(() => '')
+        debugLog('WARN: HTTP', resp.status, errBody.slice(0, 300))
         return
       }
 
       const result = await resp.json()
+      if (Array.isArray(result?.trace)) {
+        for (const step of result.trace) {
+          debugLog(`server: ${step.message}`, step.data)
+        }
+      }
+      debugLog('result', {
+        suggest: result?.suggest,
+        reason: result?.reason,
+        method: result?.provenance?.method || result?.provenance?.model,
+        model: result?.provenance?.model,
+        shareIds: result?.shareIds,
+        title: result?.title,
+      })
       if (!result?.suggest || !Array.isArray(result.shareIds) || result.shareIds.length < 2) {
+        debugLog('no chip:', result?.reason || 'declined')
         return
       }
 
@@ -353,12 +385,13 @@ export function useMessages(user) {
       })
 
       if (error) {
-        console.warn('chip insert failed', error.message)
+        debugLog('WARN: chip insert failed', error.message)
         return
       }
+      debugLog('chip inserted', chipPayload.title)
       lastFingerprint.current = sameFp
     } catch (e) {
-      console.warn('suggest error', e)
+      debugLog('WARN: error', e)
     } finally {
       suggestInFlight.current = false
     }
@@ -366,6 +399,7 @@ export function useMessages(user) {
 
   const scheduleSuggest = useCallback(() => {
     if (suggestTimer.current) clearTimeout(suggestTimer.current)
+    debugLog('scheduled in', SUGGEST_DEBOUNCE_MS, 'ms (only on send, not continuous)')
     suggestTimer.current = setTimeout(() => {
       requestSuggest()
     }, SUGGEST_DEBOUNCE_MS)

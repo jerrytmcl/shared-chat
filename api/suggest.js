@@ -19,6 +19,19 @@ const cors = {
 
 const GEMINI_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash']
 
+let activeTrace = null
+function slog(...args) {
+  console.log('[shared-chat suggest]', ...args)
+  if (activeTrace) {
+    const [msg, data] = args
+    activeTrace.push({
+      at: new Date().toISOString(),
+      message: String(msg),
+      data: data === undefined ? null : data,
+    })
+  }
+}
+
 function json(res, status, body) {
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json')
@@ -45,6 +58,7 @@ function tokenize(text) {
 }
 
 function keywordSuggest(recentMessages, shares) {
+  slog('keyword path: scoring shares against recent message text')
   const recentText = recentMessages
     .map((m) => [m.body, m.share?.title, m.share?.description].filter(Boolean).join(' '))
     .join(' ')
@@ -65,6 +79,7 @@ function keywordSuggest(recentMessages, shares) {
     .sort((a, b) => b.score - a.score)
 
   if (scored.length < 2) {
+    slog('keyword path: no chip', { scored: scored.length, reason: 'no_strong_overlap' })
     return { suggest: false, reason: 'no_strong_overlap' }
   }
 
@@ -77,6 +92,7 @@ function keywordSuggest(recentMessages, shares) {
       : `${titles[0]} + ${titles.length - 1} more`
   const summary = `Saved material that overlaps this thread: ${titles.slice(0, 3).join(', ')}.`
 
+  slog('keyword path: suggesting', { shareIds, title })
   return {
     suggest: true,
     title: String(title).slice(0, 80),
@@ -166,6 +182,20 @@ async function geminiSuggest(recentMessages, shares, apiKey) {
     author_id: m.author_id,
   }))
 
+  slog('step: build catalog from original_shares', {
+    shareCount: shares.length,
+    kinds: shares.reduce((a, s) => ((a[s.kind] = (a[s.kind] || 0) + 1), a), {}),
+  })
+  slog('step: take last messages as context', {
+    recentCount: recentMessages.length,
+    preview: recentMessages.slice(-3).map((m) => ({
+      kind: m.kind,
+      body: String(m.body || '').slice(0, 80),
+    })),
+  })
+  slog('step: call Gemini once (not streaming / not continuous)', {
+    models: GEMINI_MODELS,
+  })
   const system = `You are a quiet library assistant for a two-person private chat.
 Decide whether saved original_shares clearly help the current conversation.
 HIGH BAR: only suggest when overlap is obvious and useful. Prefer suggest=false.
@@ -195,6 +225,7 @@ If suggest=false: empty title/summary and shareIds=[].`
     }
   }
   if (!usedModel) throw lastErr || new Error('Gemini unavailable')
+  slog('gemini raw', { model: usedModel, chars: rawText.length, preview: rawText.slice(0, 200) })
 
   const parsed = extractJsonObject(rawText)
   if (!parsed) {
@@ -216,7 +247,19 @@ If suggest=false: empty title/summary and shareIds=[].`
     createdAt: new Date().toISOString(),
   }
 
+  slog('step: Gemini decision', {
+    suggest: parsed.suggest,
+    title: parsed.title,
+    shareIds,
+    rejectedIds: Array.isArray(parsed.shareIds)
+      ? parsed.shareIds.filter((id) => !allowed.has(id))
+      : [],
+  })
+
   if (!parsed.suggest || shareIds.length < 2) {
+    slog('step: no chip', {
+      reason: parsed.suggest ? 'invalid_or_few_ids' : 'model_declined',
+    })
     return {
       suggest: false,
       reason: parsed.suggest ? 'invalid_or_few_ids' : 'model_declined',
@@ -225,6 +268,11 @@ If suggest=false: empty title/summary and shareIds=[].`
   }
 
   const picked = shareIds.slice(0, 5)
+  slog('step: chip proposal ready', {
+    title: parsed.title,
+    shareIds: picked,
+    model: usedModel,
+  })
   return {
     suggest: true,
     title: String(parsed.title || 'Related saves').slice(0, 80),
@@ -277,6 +325,13 @@ export default async function handler(req, res) {
   const conversationId = body.conversationId
   const recentMessages = Array.isArray(body.recentMessages) ? body.recentMessages : []
   const authorId = body.authorId
+  activeTrace = []
+  slog('request', {
+    conversationId,
+    authorId,
+    recentCount: recentMessages.length,
+    geminiKey: Boolean(geminiKey),
+  })
 
   if (!conversationId) return json(res, 400, { error: 'conversationId required' })
 
@@ -316,7 +371,12 @@ export default async function handler(req, res) {
   }
 
   const list = shares || []
+  slog('step: loaded original_shares for conversation', {
+    count: list.length,
+    sample: list.slice(0, 5).map((s) => ({ id: s.id, kind: s.kind, title: s.title })),
+  })
   if (list.length < 2) {
+    slog('step: no chip — need ≥2 shares in corpus')
     return json(res, 200, { suggest: false, reason: 'too_few_shares' })
   }
 
@@ -336,7 +396,10 @@ export default async function handler(req, res) {
     } else {
       result = keywordSuggest(recentMessages, list)
     }
-    return json(res, 200, result)
+    slog('response', { suggest: result?.suggest, reason: result?.reason, method: result?.provenance?.method, model: result?.provenance?.model, shareIds: result?.shareIds })
+    const trace = activeTrace || []
+    activeTrace = null
+    return json(res, 200, { ...result, trace })
   } catch (e) {
     console.error(e)
     return json(res, 500, { error: String(e.message || e) })
