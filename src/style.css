@@ -421,7 +421,8 @@
 }
 .run-row-copy strong {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
+  color: #2a3140;
   overflow-wrap: anywhere;
 }
 .run-row-copy small {
@@ -733,3 +734,14 @@
   font-weight: 500;
   letter-spacing: 0.01em;
 }
+
+/* Expanded rows: regular weight — bold walls make eyes glaze */
+.run-row-copy strong {
+  font-weight: 400 !important;
+  color: #2a3140;
+}
+/* Pile title stays medium, not heavy */
+.run-copy > strong {
+  font-weight: 500;
+}
+
