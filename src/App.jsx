@@ -223,15 +223,17 @@ function ChatShell({ auth }) {
                         </>
                       ) : isChip ? (
                         <>
-                          <div className="card-with-time">
+                          <div className="card-stack">
                             <SuggestionChip
                               message={m}
                               onShow={onShowChip}
                               busy={chipBusy}
                             />
-                            <time className="run-time">
-                              {formatTime(m.created_at)}
-                            </time>
+                            <div className="card-time-row">
+                              <time className="card-time">
+                                {formatTime(m.created_at)}
+                              </time>
+                            </div>
                           </div>
                           <MessageReactions
                             messageId={m.id}
@@ -242,11 +244,13 @@ function ChatShell({ auth }) {
                         </>
                       ) : isPackage ? (
                         <>
-                          <div className="card-with-time">
+                          <div className="card-stack">
                             <LivingPackage message={m} />
-                            <time className="run-time">
-                              {formatTime(m.created_at)}
-                            </time>
+                            <div className="card-time-row">
+                              <time className="card-time">
+                                {formatTime(m.created_at)}
+                              </time>
+                            </div>
                           </div>
                           <MessageReactions
                             messageId={m.id}

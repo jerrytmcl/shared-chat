@@ -6,7 +6,7 @@ import {
   STORAGE_BUCKET,
 } from '../lib/supabase'
 import { DEMO_MESSAGES, DEMO_USER } from '../lib/demoData'
-import { platformFromUrl, detectKindFromFile } from '../lib/groupMessages'
+import { platformFromUrl, detectKindFromFile, nicerLinkLabel } from '../lib/groupMessages'
 import { debugLog } from '../lib/debugLog'
 
 const SUGGEST_DEBOUNCE_MS = 600
@@ -600,7 +600,7 @@ export function useMessages(user) {
   const sendLinkShare = useCallback(
     async (href) => {
       if (!user) return
-      const platform = platformFromUrl(href)
+      let platform = platformFromUrl(href)
       let title
       try {
         const u = new URL(href)
@@ -608,7 +608,41 @@ export function useMessages(user) {
       } catch {
         title = href
       }
-      const description = 'Original link saved.'
+      let description = 'Original link saved.'
+
+      // Best-effort unfurl (X oEmbed / OG) before insert
+      if (isSupabaseConfigured && supabase && user.id !== DEMO_USER.id) {
+        try {
+          const { data: sessionData } = await supabase.auth.getSession()
+          const token = sessionData?.session?.access_token
+          if (token) {
+            const resp = await fetch('/api/unfurl', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ url: href }),
+            })
+            if (resp.ok) {
+              const meta = await resp.json()
+              if (meta?.title) title = String(meta.title).slice(0, 120)
+              if (meta?.description) description = String(meta.description).slice(0, 240)
+              if (meta?.platform) platform = meta.platform
+            }
+          }
+        } catch (e) {
+          console.warn('unfurl failed, using fallback title', e)
+        }
+      } else {
+        // Demo / offline: improve X fallback client-side
+        try {
+          const nicer = nicerLinkLabel(href)
+          if (nicer && nicer !== title) title = nicer
+        } catch {
+          /* ignore */
+        }
+      }
 
       if (!isSupabaseConfigured || !supabase || user.id === DEMO_USER.id) {
         const shareId = crypto.randomUUID()

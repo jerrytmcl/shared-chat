@@ -274,14 +274,16 @@
   overflow: hidden;
 }
 
+
 .bubble {
   position: relative;
-  padding-bottom: 16px;
+  padding-bottom: 2px;
 }
 .bubble-time {
   float: right;
-  margin: 4px 0 -2px 8px;
-  font-size: 10px;
+  margin: 2px 0 -1px 10px;
+  font-size: 11px;
+  line-height: 1.4;
   opacity: 0.7;
   white-space: nowrap;
   letter-spacing: 0;
@@ -298,34 +300,44 @@
 
 .material-run {
   position: relative;
-  padding-bottom: 4px;
 }
 .material-run > summary {
-  padding-right: 36px;
+  padding-right: 14px; /* chevron only — no reserved right column for time */
 }
-.run-time {
-  position: absolute;
-  right: 10px;
-  bottom: 6px;
+.material-run-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 420px;
+}
+.material-run-wrap .material-run {
+  max-width: none;
+}
+.card-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 420px;
+}
+.card-time-row {
+  display: flex;
+  padding: 2px 6px 0;
+  margin-top: 2px;
+}
+.message:not(.own) .card-time-row {
+  justify-content: flex-start;
+}
+.message.own .card-time-row {
+  justify-content: flex-end;
+}
+.card-time {
   font-size: 10px;
   color: #8a8a93;
   letter-spacing: 0;
-  line-height: 1;
-  pointer-events: none;
+  line-height: 1.2;
 }
-.own .run-time {
+.own .card-time {
   color: #7a8aa0;
-}
-.card-with-time {
-  position: relative;
-  padding-bottom: 14px;
-}
-.card-with-time .run-time {
-  bottom: 2px;
-}
-.card-with-time .suggestion-chip,
-.card-with-time .material-run {
-  margin: 0;
 }
 
 /* Flat run rows (no Attachment accordion) */
@@ -422,22 +434,33 @@
   margin-left: 4px;
 }
 
-/* Reactions */
-.message-reactions {
+/* WhatsApp-style reactions: smile trigger on hover, picker on click, pills when present */
+.message {
   position: relative;
-  margin-top: -6px;
-  margin-bottom: 2px;
+}
+.message-content {
+  position: relative;
+}
+.message-reactions {
+  position: static;
+  margin-top: -4px;
+  margin-bottom: 0;
   padding: 0 2px;
   min-height: 0;
+  pointer-events: none;
 }
 .message-reactions.has-pills {
-  margin-top: -8px;
+  margin-top: -10px;
+  pointer-events: auto;
 }
 .reaction-pills {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   align-items: center;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
 }
 .reaction-pill {
   display: inline-flex;
@@ -464,22 +487,70 @@
   color: #5c6675;
   font-weight: 500;
 }
+
+/* Smile button outside bubble — WhatsApp desktop */
+.react-trigger {
+  position: absolute;
+  top: 8px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #e2e5ea;
+  background: #fff;
+  box-shadow: 0 1px 4px #00000018;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 3;
+  transition: opacity 0.12s ease;
+}
+/* Others: trigger to the right of content; own: to the left */
+.message:not(.own) .message-content > .message-reactions .react-trigger,
+.message:not(.own) .react-trigger {
+  left: calc(100% + 6px);
+  right: auto;
+}
+.message.own .message-content > .message-reactions .react-trigger,
+.message.own .react-trigger {
+  right: calc(100% + 6px);
+  left: auto;
+}
+.message:hover .react-trigger,
+.message:focus-within .react-trigger,
+.react-trigger.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.react-trigger:hover,
+.react-trigger.is-open {
+  background: #f7f8fa;
+}
+
 .reaction-picker {
-  display: none;
+  position: absolute;
+  top: 40px;
+  display: inline-flex;
   gap: 2px;
-  margin-top: 4px;
-  padding: 3px;
+  padding: 4px;
   background: #fff;
   border: 1px solid #e2e5ea;
   border-radius: 999px;
-  box-shadow: 0 4px 16px #00000018;
+  box-shadow: 0 4px 16px #00000022;
   width: max-content;
-  max-width: 100%;
+  max-width: min(280px, 90vw);
+  z-index: 5;
+  pointer-events: auto;
 }
-.reaction-picker.is-visible,
-.message-reactions:hover .reaction-picker,
-.message-reactions:focus-within .reaction-picker {
-  display: inline-flex;
+.message:not(.own) .reaction-picker {
+  left: calc(100% + 6px);
+  right: auto;
+}
+.message.own .reaction-picker {
+  right: calc(100% + 6px);
+  left: auto;
 }
 .reaction-pick {
   border: 0;
@@ -493,19 +564,53 @@
 .reaction-pick:hover {
   background: #f0f2f5;
 }
-.message.own .message-reactions {
+.message.own .message-reactions.has-pills {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
 }
-.message.is-chip .message-reactions {
+.message.is-chip .message-reactions.has-pills {
   align-items: center;
 }
-.message-reactions.is-empty {
-  min-height: 8px;
-  margin-top: 2px;
+
+/* In-app image/GIF lightbox */
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
 }
-.message:hover .message-reactions.is-empty .reaction-picker,
-.message:focus-within .message-reactions.is-empty .reaction-picker {
-  display: inline-flex;
+.lightbox-image {
+  max-width: min(96vw, 1200px);
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 12px 48px #0008;
+  cursor: default;
+  background: #111;
+}
+.lightbox-close {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1001;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+}
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
 }

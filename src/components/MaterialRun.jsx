@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Icon } from './Icon'
+import { Lightbox } from './Lightbox'
+import { useRunCopy } from '../hooks/useRunCopy'
 import {
   hostnameFromUrl,
   shareDisplayLabel,
-  runCardCopy,
   sourceMarksForItems,
   kindLabel,
 } from '../lib/groupMessages'
@@ -73,12 +74,7 @@ function RunLinkRow({ share, onJump, messageId, result }) {
   return (
     <div className="run-item" id={result ? undefined : messageId}>
       {href ? (
-        <a
-          className="run-row"
-          href={href}
-          target="_blank"
-          rel="noreferrer"
-        >
+        <a className="run-row" href={href} target="_blank" rel="noreferrer">
           {inner}
         </a>
       ) : (
@@ -97,8 +93,7 @@ function RunLinkRow({ share, onJump, messageId, result }) {
   )
 }
 
-function RunMediaRow({ share, onJump, messageId, result }) {
-  const [open, setOpen] = useState(false)
+function RunMediaRow({ share, onJump, messageId, result, onOpenLightbox }) {
   const src = share.url || share.href || null
   const label = shareDisplayLabel(share)
 
@@ -108,14 +103,7 @@ function RunMediaRow({ share, onJump, messageId, result }) {
         type="button"
         className="run-row"
         onClick={() => {
-          if (src && !open) {
-            // Prefer expand inline; second click / middle open in new tab via link below
-            setOpen(true)
-          } else if (src) {
-            window.open(src, '_blank', 'noopener,noreferrer')
-          } else {
-            setOpen((v) => !v)
-          }
+          if (src) onOpenLightbox?.(src, label)
         }}
       >
         <span className="run-row-icon">
@@ -131,11 +119,6 @@ function RunMediaRow({ share, onJump, messageId, result }) {
         </span>
         <Icon name="chevron" />
       </button>
-      {open && src && (
-        <div className="run-row-expand">
-          <img className="full-image" src={src} alt={label} />
-        </div>
-      )}
       {result && (
         <button
           className="source-jump"
@@ -193,7 +176,7 @@ function RunDocRow({ share, onJump, messageId, result }) {
   )
 }
 
-function RunFlatRow({ message, onJump, result }) {
+function RunFlatRow({ message, onJump, result, onOpenLightbox }) {
   const share = message.share
   if (!share) return null
   const kind = share.kind || 'link'
@@ -204,6 +187,7 @@ function RunFlatRow({ message, onJump, result }) {
         messageId={message.id}
         onJump={onJump}
         result={result}
+        onOpenLightbox={onOpenLightbox}
       />
     )
   }
@@ -232,6 +216,7 @@ function RunFlatRow({ message, onJump, result }) {
  * from one author. UI grouping only — not a DB entity.
  * Optional title/summary overrides used by living package messages.
  * Expanded list is a flat row list (no Attachment accordion).
+ * Images/GIFs open in an in-app lightbox (not a new tab).
  */
 export function MaterialRun({
   items,
@@ -242,42 +227,55 @@ export function MaterialRun({
   timeLabel,
 }) {
   const marks = sourceMarksForItems(items)
-  const copy = runCardCopy(items)
+  const copy = useRunCopy(items, { enabled: titleProp == null })
   const title = titleProp || copy.title
   const subtitle = summaryProp || copy.summary
+  const [lightbox, setLightbox] = useState(null)
+  const openLightbox = useCallback((src, alt) => {
+    if (src) setLightbox({ src, alt: alt || '' })
+  }, [])
+  const closeLightbox = useCallback(() => setLightbox(null), [])
 
   return (
-    <details className="material-run">
-      <summary>
-        <span className="source-stack" aria-hidden="true">
-          {marks.map((mark, i) => (
-            <SourceMark
-              key={`${mark.type}-${mark.host || mark.name || mark.label}-${i}`}
-              mark={mark}
-            />
-          ))}
-        </span>
-        <span className="run-copy">
-          <strong>{title}</strong>
-          <span>{subtitle}</span>
-        </span>
-        <Icon name="chevron" />
-      </summary>
-      <div className="run-items">
-        {items.map((m) => (
-          <RunFlatRow
-            key={m.id}
-            message={m}
-            onJump={onJump}
-            result={result}
-          />
-        ))}
+    <>
+      <div className="material-run-wrap">
+        <details className="material-run">
+          <summary>
+            <span className="source-stack" aria-hidden="true">
+              {marks.map((mark, i) => (
+                <SourceMark
+                  key={`${mark.type}-${mark.host || mark.name || mark.label}-${i}`}
+                  mark={mark}
+                />
+              ))}
+            </span>
+            <span className="run-copy">
+              <strong>{title}</strong>
+              <span>{subtitle}</span>
+            </span>
+            <Icon name="chevron" />
+          </summary>
+          <div className="run-items">
+            {items.map((m) => (
+              <RunFlatRow
+                key={m.id}
+                message={m}
+                onJump={onJump}
+                result={result}
+                onOpenLightbox={openLightbox}
+              />
+            ))}
+          </div>
+        </details>
+        {timeLabel ? (
+          <div className="card-time-row">
+            <time className="card-time">{timeLabel}</time>
+          </div>
+        ) : null}
       </div>
-      {timeLabel ? (
-        <time className="run-time" dateTime={undefined}>
-          {timeLabel}
-        </time>
-      ) : null}
-    </details>
+      {lightbox && (
+        <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={closeLightbox} />
+      )}
+    </>
   )
 }

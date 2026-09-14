@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🔥']
 
 /**
- * WhatsApp-ish reaction pills + hover picker.
- * Props: messageId, reactions [{id, emoji, user_id}], currentUserId, onToggle(emoji)
+ * WhatsApp-style reactions:
+ * - Smile trigger on hover (outside bubble)
+ * - Picker opens from trigger click only
+ * - Pills only when someone has reacted
  */
 export function MessageReactions({
   messageId,
@@ -12,7 +14,8 @@ export function MessageReactions({
   currentUserId,
   onToggle,
 }) {
-  const [open, setOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const rootRef = useRef(null)
 
   const aggregated = useMemo(() => {
     const map = new Map()
@@ -23,20 +26,34 @@ export function MessageReactions({
       if (currentUserId && r.user_id === currentUserId) cur.mine = true
       map.set(r.emoji, cur)
     }
-    return [...map.values()].sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji))
+    return [...map.values()].sort(
+      (a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji)
+    )
   }, [reactions, currentUserId])
+
+  useEffect(() => {
+    if (!pickerOpen) return undefined
+    function onDoc(e) {
+      if (!rootRef.current?.contains(e.target)) setPickerOpen(false)
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [pickerOpen])
 
   if (!messageId || !onToggle) return null
 
   return (
     <div
-      className={`message-reactions${aggregated.length ? ' has-pills' : ' is-empty'}`}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false)
-      }}
+      ref={rootRef}
+      className={`message-reactions${aggregated.length ? ' has-pills' : ''}${pickerOpen ? ' is-open' : ''}`}
+      onMouseLeave={() => setPickerOpen(false)}
     >
       {aggregated.length > 0 && (
         <div className="reaction-pills" role="group" aria-label="Reactions">
@@ -54,23 +71,36 @@ export function MessageReactions({
           ))}
         </div>
       )}
-      <div
-        className={`reaction-picker${open ? ' is-visible' : ''}`}
-        role="toolbar"
-        aria-label="Add reaction"
+      <button
+        type="button"
+        className={`react-trigger${pickerOpen ? ' is-open' : ''}`}
+        aria-label="React"
+        aria-expanded={pickerOpen}
+        onClick={(e) => {
+          e.stopPropagation()
+          setPickerOpen((v) => !v)
+        }}
       >
-        {QUICK.map((emoji) => (
-          <button
-            key={emoji}
-            type="button"
-            className="reaction-pick"
-            onClick={() => onToggle(emoji)}
-            aria-label={`React ${emoji}`}
-          >
-            {emoji}
-          </button>
-        ))}
-      </div>
+        😊
+      </button>
+      {pickerOpen && (
+        <div className="reaction-picker" role="toolbar" aria-label="Add reaction">
+          {QUICK.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              className="reaction-pick"
+              onClick={() => {
+                onToggle(emoji)
+                setPickerOpen(false)
+              }}
+              aria-label={`React ${emoji}`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
