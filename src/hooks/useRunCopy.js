@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
-import { runCardCopy, shareDisplayLabel } from '../lib/groupMessages'
+import { runCardCopy, shareDisplayLabel, truncateAtWord } from '../lib/groupMessages'
 
 const cache = new Map()
 const inflight = new Map()
@@ -20,9 +20,16 @@ function fingerprintItems(items) {
     .join('|')
 }
 
+function softSummary(text) {
+  const s = String(text || '').trim()
+  if (!s) return ''
+  // Prefer complete words — never mid-clause hard cut
+  return truncateAtWord(s, 140)
+}
+
 /**
- * Heuristic immediately; for n>=2 debounce Gemini /api/run-copy and cache by fingerprint.
- * titleProp/summaryProp still win at the call site.
+ * Heuristic immediately; for n>=2 fire Gemini /api/run-copy right away.
+ * While a new fingerprint is loading, keep prior Gemini copy (no "4 links" flash).
  */
 export function useRunCopy(items, { enabled = true } = {}) {
   const list = Array.isArray(items) ? items : []
@@ -39,12 +46,13 @@ export function useRunCopy(items, { enabled = true } = {}) {
       setRemote(cache.get(fp))
       return undefined
     }
-    setRemote(null)
+    // Keep stale Gemini until the new one lands — do NOT clear to heuristic
     if (list.length < 2 || !fp) return undefined
     if (!isSupabaseConfigured || !supabase) return undefined
 
     let cancelled = false
-    const timer = setTimeout(async () => {
+
+    const run = async () => {
       if (inflight.has(fp)) {
         try {
           const result = await inflight.get(fp)
@@ -55,7 +63,6 @@ export function useRunCopy(items, { enabled = true } = {}) {
         return
       }
 
-      // Send description heavily so Gemini can theme from tweet/article text
       const payloadItems = list.map((m) => ({
         title: shareDisplayLabel(m.share) || m.share?.title || '',
         description: String(m.share?.description || '').slice(0, 200),
@@ -79,11 +86,14 @@ export function useRunCopy(items, { enabled = true } = {}) {
         })
         if (!resp.ok) return null
         const data = await resp.json()
-        // Only cache real Gemini copy — heuristic fallbacks must retry next visit
         if (!data?.title || data.method !== 'gemini') return null
+        const itemSummaries = Array.isArray(data.itemSummaries)
+          ? data.itemSummaries.map((s) => String(s || '').trim().slice(0, 110))
+          : []
         const copy = {
           title: String(data.title).slice(0, 52),
-          summary: String(data.summary || '').slice(0, 90),
+          summary: softSummary(data.summary || ''),
+          itemSummaries,
         }
         cache.set(fp, copy)
         return copy
@@ -98,17 +108,20 @@ export function useRunCopy(items, { enabled = true } = {}) {
       } finally {
         inflight.delete(fp)
       }
-    }, 400)
+    }
+
+    run()
 
     return () => {
       cancelled = true
-      clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fingerprint drives refresh
   }, [fp, enabled])
 
+  const hasGemini = Boolean(remote?.title)
   return {
-    title: remote?.title || heuristic.title,
-    summary: remote?.summary || heuristic.summary,
+    title: hasGemini ? remote.title : heuristic.title,
+    summary: hasGemini ? remote.summary : softSummary(heuristic.summary),
+    itemSummaries: remote?.itemSummaries || [],
   }
 }

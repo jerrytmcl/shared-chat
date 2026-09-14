@@ -9,6 +9,7 @@ import {
   shareSecondaryLine,
   sourceMarksForItems,
   kindLabel,
+  runTimeSpanLabel,
 } from '../lib/groupMessages'
 
 function faviconUrl(host) {
@@ -42,11 +43,11 @@ function SourceMark({ mark }) {
   )
 }
 
-function RunLinkRow({ share, onJump, messageId, result }) {
+function RunLinkRow({ share, onJump, messageId, result, geminiSummary }) {
   const href = share.href || share.url
   const host = href ? hostnameFromUrl(href) : ''
-  // Short summary for expand rows — not full tweet / not shareDisplayLabel
-  const label = shareRowSummary(share)
+  // Prefer Gemini one-liner; else short heuristic row summary
+  const label = (geminiSummary && geminiSummary.trim()) || shareRowSummary(share)
   const secondary = shareSecondaryLine(share)
   const inner = (
     <>
@@ -180,7 +181,7 @@ function RunDocRow({ share, onJump, messageId, result }) {
   )
 }
 
-function RunFlatRow({ message, onJump, result, onOpenLightbox }) {
+function RunFlatRow({ message, onJump, result, onOpenLightbox, geminiSummary }) {
   const share = message.share
   if (!share) return null
   const kind = share.kind || 'link'
@@ -211,6 +212,7 @@ function RunFlatRow({ message, onJump, result, onOpenLightbox }) {
       messageId={message.id}
       onJump={onJump}
       result={result}
+      geminiSummary={geminiSummary}
     />
   )
 }
@@ -234,6 +236,8 @@ export function MaterialRun({
   const copy = useRunCopy(items, { enabled: titleProp == null })
   const title = titleProp || copy.title
   const subtitle = summaryProp || copy.summary
+  const itemSummaries = copy.itemSummaries || []
+  const spanLabel = runTimeSpanLabel(items)
   const [lightbox, setLightbox] = useState(null)
   const openLightbox = useCallback((src, alt) => {
     if (src) setLightbox({ src, alt: alt || '' })
@@ -255,18 +259,20 @@ export function MaterialRun({
             </span>
             <span className="run-copy">
               <strong>{title}</strong>
-              <span>{subtitle}</span>
+              {subtitle ? <span className="run-blurb">{subtitle}</span> : null}
+              {spanLabel ? <small className="run-span">{spanLabel}</small> : null}
             </span>
             <Icon name="chevron" />
           </summary>
           <div className="run-items">
-            {items.map((m) => (
+            {items.map((m, i) => (
               <RunFlatRow
                 key={m.id}
                 message={m}
                 onJump={onJump}
                 result={result}
                 onOpenLightbox={openLightbox}
+                geminiSummary={itemSummaries[i]}
               />
             ))}
           </div>

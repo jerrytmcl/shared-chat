@@ -4,7 +4,7 @@
  * Auth: Bearer Supabase JWT (same pattern as suggest.js).
  *
  * Body: { items: [{ title, description, kind, href, platform, byline }] }
- * Returns: { title, summary }
+ * Returns: { title, summary, itemSummaries?: string[], method }
  *
  * Env: SUPABASE_URL, anon/service key, GEMINI_API_KEY, optional GEMINI_MODELS (comma-separated)
  */
@@ -148,14 +148,19 @@ async function geminiCopy(items, apiKey) {
     platform: it.platform || null,
   }))
 
-  const system = `You write short card titles for a private 2-person chat dump of shared links/files.
-Given shared items, return JSON only: {"title":string,"summary":string}
+  const system = `You write short card copy for a private 2-person chat dump of shared links/files.
+Given shared items (indexed by i), return JSON only:
+{"title":string,"summary":string,"itemSummaries":string[]}
 Rules:
-- Use descriptions and tweet/article text as the primary signal for what was shared
-- title: thematic (~6 words max) — WHAT the content is about (topics/themes), not who posted
-- summary: one line (~14 words) summarizing WHAT was shared across the items
-- FORBIDDEN: listing @handles only; listing domains/hostnames (x.com, substack.com, etc.)
-- Favicons already show sources — never put hostnames in title or summary
+- Use descriptions and tweet/article text as the primary signal
+- title: thematic (~6 words max) for the whole pile — WHAT it's about, not who posted
+- summary: one complete line (~12–16 words) for the collapsed card — finish the thought, never trail off mid-clause
+- itemSummaries: one short line per item, SAME ORDER as input, length = items.length
+  - each ~8–16 words, WHAT that single item is about
+  - if the item is already a good short title (<=110 chars of real content), you may tighten it; never invent
+  - FORBIDDEN per item: "@handle shared…", bare hosts, "X article shared by…"
+- FORBIDDEN in title/summary: @handles-only, domains/hostnames (x.com, substack.com)
+- Favicons show sources — never put hostnames in any string
 - Prefer themes like "AI design threads" over "@Stefan and 2 more"
 - Never invent facts not hinted by the titles/descriptions`
 
@@ -180,9 +185,24 @@ Rules:
 
   const parsed = extractJsonObject(rawText)
   if (!parsed?.title) throw new Error('bad_model_json')
+  const itemSummaries = Array.isArray(parsed.itemSummaries)
+    ? parsed.itemSummaries.map((s) => String(s || '').trim().slice(0, 110))
+    : []
+  // Pad/trim to item count so clients can index safely
+  while (itemSummaries.length < items.length) itemSummaries.push('')
+  if (itemSummaries.length > items.length) itemSummaries.length = items.length
+  const summaryRaw = String(parsed.summary || '').trim()
+  let summary = summaryRaw
+  if (summary.length > 140) {
+    const cut = summary.slice(0, 140)
+    const sp = cut.lastIndexOf(' ')
+    summary = (sp > 80 ? cut.slice(0, sp) : cut).trim()
+    if (!/[.!?…]$/.test(summary)) summary += '…'
+  }
   return {
     title: String(parsed.title).slice(0, 52),
-    summary: String(parsed.summary || '').slice(0, 90),
+    summary,
+    itemSummaries,
   }
 }
 
@@ -245,7 +265,7 @@ export default async function handler(req, res) {
 
   const fallback = heuristicCopy(items)
   if (!geminiKey || items.length < 2) {
-    return json(res, 200, { ...fallback, method: 'heuristic' })
+    return json(res, 200, { ...fallback, itemSummaries: [], method: 'heuristic' })
   }
 
   try {
@@ -255,6 +275,7 @@ export default async function handler(req, res) {
     console.error('run-copy gemini failed', e)
     return json(res, 200, {
       ...fallback,
+      itemSummaries: [],
       method: 'heuristic',
       geminiError: String(e.message || e).slice(0, 200),
     })

@@ -709,3 +709,27 @@
 .day-divider {
   margin: 0 0 18px !important;
 }
+
+/* Collapsed run: never clip the Gemini blurb mid-sentence */
+.material-run > summary {
+  align-items: flex-start;
+}
+.run-copy {
+  flex: 1;
+  min-width: 0;
+}
+.run-copy .run-blurb {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  /* no line-clamp — full short blurb wraps */
+}
+.run-copy .run-span {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.3;
+  color: #8a8a93;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}

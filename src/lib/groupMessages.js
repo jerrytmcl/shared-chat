@@ -45,6 +45,43 @@ export function formatTime(iso) {
   }
 }
 
+/** Quiet cue when a pile spans a long quiet gap (keep one pile; don't split). */
+const RUN_SPAN_MS = 2 * 60 * 60 * 1000 // 2 hours
+
+function relativeBucket(ts, now = Date.now()) {
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return ''
+  const diff = now - ts
+  if (diff < 15 * 60 * 1000) return 'just now'
+  if (diff < 90 * 60 * 1000) return 'a little earlier'
+
+  const startOfToday = new Date(now)
+  startOfToday.setHours(0, 0, 0, 0)
+  const startOfYesterday = new Date(startOfToday)
+  startOfYesterday.setDate(startOfYesterday.getDate() - 1)
+
+  if (d >= startOfToday) return 'earlier today'
+  if (d >= startOfYesterday) return 'yesterday'
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+export function runTimeSpanLabel(items) {
+  const list = Array.isArray(items) ? items : []
+  if (list.length < 2) return ''
+  const times = list
+    .map((m) => new Date(m?.created_at || 0).getTime())
+    .filter((t) => Number.isFinite(t) && t > 0)
+  if (times.length < 2) return ''
+  const first = Math.min(...times)
+  const last = Math.max(...times)
+  if (last - first < RUN_SPAN_MS) return ''
+  const a = relativeBucket(first)
+  const b = relativeBucket(last)
+  if (!a || !b || a === b) return ''
+  return `${a} · ${b}`
+}
+
+
 export function hostnameFromUrl(url) {
   try {
     return new URL(url).hostname.replace(/^www\./, '').toLowerCase()
@@ -276,7 +313,7 @@ export function shareDisplayLabel(share) {
  * Never bare @handle / raw url / status id when real text exists.
  * Images/gifs/docs keep filename/kind label.
  */
-function truncateAtWord(s, max = 100) {
+export function truncateAtWord(s, max = 100) {
   const t = String(s || '').trim()
   if (!t) return ''
   if (t.length <= max) return t
