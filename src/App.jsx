@@ -171,16 +171,7 @@ function ChatShell({ auth }) {
         >
           <div className="messages" ref={list}>
             <div className="message-width">
-              <div className="day-divider">
-                Today{' '}
-                <span>
-                  {formatTime(messages[0]?.created_at) ||
-                    new Date().toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                </span>
-              </div>
+              <div className="day-divider">Today</div>
               {groupMessages(messages).map((m, index, groups) => {
                 const isChip = !m.items && m.kind === 'chip'
                 const isPackage = !m.items && m.kind === 'package'

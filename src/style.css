@@ -645,3 +645,67 @@
 .lightbox-close:hover {
   background: rgba(255, 255, 255, 0.22);
 }
+
+/* --- Spacing: stop clumping --- */
+.message {
+  margin: 14px 0 0 !important;
+  padding: 0 !important;
+}
+.message.continuation {
+  margin-top: 6px !important;
+}
+.message:has(.material-run),
+.message:has(.material-run-wrap) {
+  margin-top: 16px !important;
+}
+.message.continuation:has(.material-run),
+.message.continuation:has(.material-run-wrap) {
+  margin-top: 8px !important;
+}
+
+.bubble {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  padding: 10px 14px 8px !important;
+  max-width: 100%;
+}
+.bubble-body {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+.bubble-time {
+  float: none !important;
+  align-self: flex-end !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+  opacity: 0.72;
+}
+
+/* Reactions sit under the bubble — no overlap pull-up */
+.message-reactions {
+  margin-top: 6px !important;
+  margin-bottom: 0 !important;
+  min-height: 0;
+}
+.message-reactions.has-pills {
+  margin-top: 8px !important;
+}
+.reaction-pills {
+  position: relative;
+  z-index: 2;
+  margin: 0;
+}
+
+.card-time-row {
+  padding: 4px 4px 0 !important;
+  margin-top: 4px !important;
+}
+
+.day-divider {
+  margin: 0 0 18px !important;
+}
