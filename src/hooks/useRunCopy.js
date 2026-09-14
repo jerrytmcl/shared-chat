@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { supabase, isSupabaseConfigured } from '../lib/supabase'
+import {
+  supabase,
+  isSupabaseConfigured,
+  CONVERSATION_ID,
+} from '../lib/supabase'
 import { runCardCopy, shareDisplayLabel, truncateAtWord } from '../lib/groupMessages'
 
-const STORAGE_KEY = 'shared-chat:run-copy:v2'
-const MAX_ENTRIES = 60
+const LOCAL_KEY = 'shared-chat:run-copy:v3'
+const MAX_LOCAL = 60
 
-const cache = new Map()
+const mem = new Map()
 const inflight = new Map()
-let storageHydrated = false
 
 function softSummary(text) {
   const s = String(text || '').trim()
@@ -15,7 +18,6 @@ function softSummary(text) {
   return truncateAtWord(s, 140)
 }
 
-/** Stable key: share ids only — survives refresh and minor enrich text tweaks. */
 function idKeyItems(items) {
   return (items || [])
     .map((m) => m.share?.id || m.id || m.share?.href || '')
@@ -24,7 +26,6 @@ function idKeyItems(items) {
     .join(',')
 }
 
-/** Content fingerprint — when this changes we revalidate in background. */
 function fingerprintItems(items) {
   return (items || [])
     .map((m) => {
@@ -39,57 +40,88 @@ function fingerprintItems(items) {
     .join('|')
 }
 
-function hydrateFromStorage() {
-  if (storageHydrated || typeof localStorage === 'undefined') return
-  storageHydrated = true
+function rowFromDb(row) {
+  if (!row?.title) return null
+  return {
+    title: String(row.title).slice(0, 52),
+    summary: softSummary(row.summary || ''),
+    itemSummaries: Array.isArray(row.item_summaries)
+      ? row.item_summaries.map((s) => String(s || '').trim().slice(0, 110))
+      : [],
+    contentFp: row.content_fp || '',
+    updatedAt: row.updated_at ? Date.parse(row.updated_at) : Date.now(),
+  }
+}
+
+function readLocal(ids) {
+  if (typeof localStorage === 'undefined' || !ids) return null
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return
-    for (const [key, value] of Object.entries(parsed)) {
-      if (value?.title) cache.set(key, value)
+    const all = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}')
+    const hit = all[ids]
+    return hit?.title ? hit : null
+  } catch {
+    return null
+  }
+}
+
+function writeLocal(ids, copy) {
+  if (typeof localStorage === 'undefined' || !ids || !copy?.title) return
+  try {
+    const all = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}')
+    all[ids] = { ...copy, savedAt: Date.now() }
+    const keys = Object.keys(all)
+    if (keys.length > MAX_LOCAL) {
+      keys
+        .sort((a, b) => (all[a].savedAt || 0) - (all[b].savedAt || 0))
+        .slice(0, keys.length - MAX_LOCAL)
+        .forEach((k) => delete all[k])
     }
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(all))
   } catch {
-    /* ignore corrupt cache */
+    /* ignore */
   }
 }
 
-function persistCache() {
-  if (typeof localStorage === 'undefined') return
-  try {
-    const entries = [...cache.entries()]
-    const trimmed = entries.slice(Math.max(0, entries.length - MAX_ENTRIES))
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(trimmed)))
-  } catch {
-    /* quota / private mode */
+async function fetchShared(ids) {
+  if (!supabase || !ids) return null
+  const { data, error } = await supabase
+    .from('run_copy_cache')
+    .select('title, summary, item_summaries, content_fp, updated_at')
+    .eq('conversation_id', CONVERSATION_ID)
+    .eq('share_ids_key', ids)
+    .maybeSingle()
+  if (error) {
+    console.warn('run_copy_cache read', error.message)
+    return null
+  }
+  return rowFromDb(data)
+}
+
+async function saveShared(ids, fp, copy) {
+  if (!supabase || !ids || !copy?.title) return
+  const payload = {
+    conversation_id: CONVERSATION_ID,
+    share_ids_key: ids,
+    content_fp: fp || '',
+    title: copy.title,
+    summary: copy.summary || '',
+    item_summaries: copy.itemSummaries || [],
+    updated_at: new Date().toISOString(),
+  }
+  const { error } = await supabase
+    .from('run_copy_cache')
+    .upsert(payload, { onConflict: 'conversation_id,share_ids_key' })
+  if (error) console.warn('run_copy_cache write', error.message)
+  else {
+    const remembered = { ...copy, contentFp: fp, updatedAt: Date.now() }
+    mem.set(ids, remembered)
+    writeLocal(ids, remembered)
   }
 }
-
-function remember(fp, ids, copy) {
-  const entry = {
-    ...copy,
-    savedAt: Date.now(),
-    contentFp: fp,
-  }
-  cache.set(fp, entry)
-  if (ids) cache.set(`ids:${ids}`, entry)
-  persistCache()
-}
-
-function lookup(fp, ids) {
-  hydrateFromStorage()
-  if (fp && cache.has(fp)) return { copy: cache.get(fp), exact: true }
-  if (ids && cache.has(`ids:${ids}`)) return { copy: cache.get(`ids:${ids}`), exact: false }
-  return { copy: null, exact: false }
-}
-
-hydrateFromStorage()
 
 /**
- * Heuristic immediately; Gemini for n>=2.
- * Persists to localStorage so refresh does not regenerate.
- * Exact content hit → no network. Id-only hit → show stale, revalidate in background.
+ * Shared Gemini pile copy via Supabase (Jerry + Corey).
+ * localStorage is only a fast paint hint; Supabase is source of truth.
  */
 export function useRunCopy(items, { enabled = true } = {}) {
   const list = Array.isArray(items) ? items : []
@@ -98,8 +130,8 @@ export function useRunCopy(items, { enabled = true } = {}) {
   const ids = useMemo(() => idKeyItems(list), [list])
 
   const [remote, setRemote] = useState(() => {
-    const { copy } = lookup(fp, ids)
-    return copy
+    if (!ids) return null
+    return mem.get(ids) || readLocal(ids)
   })
 
   useEffect(() => {
@@ -107,24 +139,30 @@ export function useRunCopy(items, { enabled = true } = {}) {
       setRemote(null)
       return undefined
     }
-
-    const hit = lookup(fp, ids)
-    if (hit.copy) {
-      setRemote(hit.copy)
-      // Exact content match — skip Gemini entirely
-      if (hit.exact) return undefined
-    }
-
-    if (list.length < 2 || !fp) return undefined
+    if (list.length < 2 || !ids) return undefined
     if (!isSupabaseConfigured || !supabase) return undefined
 
     let cancelled = false
 
-    const run = async () => {
+    const apply = (copy) => {
+      if (!cancelled && copy?.title) {
+        mem.set(ids, copy)
+        writeLocal(ids, copy)
+        setRemote(copy)
+      }
+    }
+
+    const needGemini = async (existing) => {
+      // Exact content match in shared cache → done
+      if (existing?.contentFp && existing.contentFp === fp) return false
+      return true
+    }
+
+    const runGemini = async () => {
       if (inflight.has(fp)) {
         try {
           const result = await inflight.get(fp)
-          if (!cancelled && result) setRemote(result)
+          if (!cancelled && result) apply(result)
         } catch {
           /* ignore */
         }
@@ -155,22 +193,23 @@ export function useRunCopy(items, { enabled = true } = {}) {
         if (!resp.ok) return null
         const data = await resp.json()
         if (!data?.title || data.method !== 'gemini') return null
-        const itemSummaries = Array.isArray(data.itemSummaries)
-          ? data.itemSummaries.map((s) => String(s || '').trim().slice(0, 110))
-          : []
         const copy = {
           title: String(data.title).slice(0, 52),
           summary: softSummary(data.summary || ''),
-          itemSummaries,
+          itemSummaries: Array.isArray(data.itemSummaries)
+            ? data.itemSummaries.map((s) => String(s || '').trim().slice(0, 110))
+            : [],
+          contentFp: fp,
+          updatedAt: Date.now(),
         }
-        remember(fp, ids, copy)
+        await saveShared(ids, fp, copy)
         return copy
       })()
 
       inflight.set(fp, promise)
       try {
         const result = await promise
-        if (!cancelled && result) setRemote(result)
+        if (!cancelled && result) apply(result)
       } catch {
         /* best-effort */
       } finally {
@@ -178,10 +217,36 @@ export function useRunCopy(items, { enabled = true } = {}) {
       }
     }
 
-    run()
+    ;(async () => {
+      const shared = await fetchShared(ids)
+      if (cancelled) return
+      if (shared) apply(shared)
+      if (await needGemini(shared)) await runGemini()
+    })()
+
+    // Live updates when the other person regenerates / first-writes
+    const channel = supabase
+      .channel(`run_copy:${CONVERSATION_ID}:${ids}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'run_copy_cache',
+          filter: `conversation_id=eq.${CONVERSATION_ID}`,
+        },
+        (payload) => {
+          const row = payload.new
+          if (!row || row.share_ids_key !== ids) return
+          const copy = rowFromDb(row)
+          if (copy) apply(copy)
+        }
+      )
+      .subscribe()
 
     return () => {
       cancelled = true
+      supabase.removeChannel(channel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fp, ids, enabled])
