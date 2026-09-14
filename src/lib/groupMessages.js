@@ -90,16 +90,34 @@ export function hostnameFromUrl(url) {
   }
 }
 
+/** Canonicalize known hostname aliases for deduplication and consistent branding. */
+export function canonicalSourceHost(host) {
+  const h = (host || '').toLowerCase()
+  if (!h) return ''
+  
+  // YouTube aliases → youtube.com
+  if (h === 'youtu.be' || h === 'm.youtube.com' || h === 'music.youtube.com' || h.endsWith('.youtube.com')) {
+    return 'youtube.com'
+  }
+  
+  // Twitter/X aliases → x.com
+  if (h === 'twitter.com' || h === 'mobile.twitter.com' || h.endsWith('.twitter.com')) {
+    return 'x.com'
+  }
+  
+  return h
+}
+
 /** Soft label for storage / search — not used for icons. */
 export function platformFromUrl(url) {
   try {
     const host = hostnameFromUrl(url)
     if (!host) return 'Link'
-    if (host === 'x.com' || host === 'twitter.com' || host.endsWith('.twitter.com'))
-      return 'X'
+    const canonical = canonicalSourceHost(host)
+    if (canonical === 'x.com') return 'X'
     if (host === 'substack.com' || host.endsWith('.substack.com'))
       return 'Substack'
-    return host
+    return canonical || host
   } catch {
     return 'Link'
   }
@@ -135,10 +153,11 @@ export function sourceMarksForItems(items) {
       mark = { type: 'icon', name: 'camera', label: kindLabel(share.kind) }
     } else if (share.href) {
       const host = hostnameFromUrl(share.href)
-      // Always use hostname as key for deduplication; fallback to URL only if host extraction fails
-      key = host ? `host:${host}` : `url:${share.href}`
-      mark = host
-        ? { type: 'favicon', label: host, host }
+      const canonical = canonicalSourceHost(host)
+      // Always use canonical hostname as key for deduplication; fallback to URL only if host extraction fails
+      key = canonical ? `host:${canonical}` : `url:${share.href}`
+      mark = canonical
+        ? { type: 'favicon', label: canonical, host: canonical }
         : { type: 'icon', name: 'file', label: 'Link' }
     } else {
       key = share.kind || 'document'
