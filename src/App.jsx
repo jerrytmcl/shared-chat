@@ -8,10 +8,14 @@ import { SearchPanel } from './components/SearchPanel'
 import { Feedback } from './components/Feedback'
 import { DebugLogPanel } from './components/DebugLogPanel'
 import { AuthScreen } from './components/AuthScreen'
+import { FocusRoom } from './components/FocusRoom'
+import { FocusRoomChip } from './components/FocusRoomChip'
 import { useAuth } from './hooks/useAuth'
 import { useMessages } from './hooks/useMessages'
 import { useEnrichShares } from './hooks/useEnrichShares'
+import { useFocusRoomSuggestion } from './hooks/useFocusRoomSuggestion'
 import { groupMessages, formatTime } from './lib/groupMessages'
+import { CONVERSATION_ID } from './lib/supabase'
 import './style.css'
 
 export default function App() {
@@ -57,6 +61,7 @@ function ChatShell({ auth }) {
     materializePackage,
   } = useMessages(user)
   useEnrichShares(messages, setMessages)
+  const focusRoomSuggestion = useFocusRoomSuggestion(messages, CONVERSATION_ID, user)
   const [text, setText] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [buildNoteOpen, setBuildNoteOpen] = useState(false)
@@ -64,6 +69,7 @@ function ChatShell({ auth }) {
   const [search, setSearch] = useState(null)
   const [drag, setDrag] = useState(false)
   const [chipBusy, setChipBusy] = useState(false)
+  const [currentRoomId, setCurrentRoomId] = useState(null)
   const list = useRef(null)
   const file = useRef(null)
   const [toastVisible, setToastVisible] = useState(false)
@@ -124,6 +130,24 @@ function ChatShell({ auth }) {
     } finally {
       setChipBusy(false)
     }
+  }
+
+  async function acceptFocusRoom() {
+    const roomId = await focusRoomSuggestion.accept()
+    if (roomId) {
+      setCurrentRoomId(roomId)
+    }
+  }
+
+  // If viewing a focus room, show that instead of main chat
+  if (currentRoomId) {
+    return (
+      <FocusRoom
+        roomId={currentRoomId}
+        onReturn={() => setCurrentRoomId(null)}
+        user={user}
+      />
+    )
   }
 
   return (
@@ -297,6 +321,24 @@ function ChatShell({ auth }) {
                   </article>
                 )
               })}
+
+              {focusRoomSuggestion.suggestion && (
+                <div className="focus-room-chip-wrapper">
+                  <FocusRoomChip
+                    suggestion={focusRoomSuggestion.suggestion}
+                    onAccept={acceptFocusRoom}
+                    busy={focusRoomSuggestion.busy}
+                  />
+                  <button
+                    type="button"
+                    className="focus-chip-dismiss"
+                    onClick={focusRoomSuggestion.dismiss}
+                    aria-label="Dismiss suggestion"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
