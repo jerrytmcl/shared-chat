@@ -118,7 +118,7 @@ export function kindLabel(kind) {
 }
 
 /**
- * Unique source marks for a material-run stack (max 3).
+ * Unique source marks for a material-run stack (max 6).
  * Links use the site favicon from the hostname — no per-brand icons.
  */
 export function sourceMarksForItems(items) {
@@ -149,7 +149,7 @@ export function sourceMarksForItems(items) {
     if (seen.has(key)) continue
     seen.add(key)
     out.push(mark)
-    if (out.length >= 3) break
+    if (out.length >= 6) break
   }
   return out
 }
