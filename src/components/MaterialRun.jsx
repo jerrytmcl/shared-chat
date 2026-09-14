@@ -6,13 +6,12 @@ import { kindLabel } from '../lib/groupMessages'
  * Expandable material-run card for consecutive attachment-only messages
  * from one author. UI grouping only — not a DB entity.
  */
-export function MaterialRun({ items, onFeedback, onJump, result = false }) {
+export function MaterialRun({ items, onJump, result = false }) {
   const kinds = [
     ...new Set(
       items.map((m) => m.share?.platform || kindLabel(m.share?.kind) || 'Link')
     ),
   ]
-  // Authored demo summary for the seed run (ids m3–m6)
   const demo = items.every((m) => /^m[3-6]$/.test(m.id))
   const title = demo
     ? 'Ideas for the camera move'
@@ -91,14 +90,6 @@ export function MaterialRun({ items, onFeedback, onJump, result = false }) {
                 </button>
               )}
             </div>
-            <button
-              className="source-feedback"
-              type="button"
-              onClick={() => onFeedback?.(m)}
-              aria-label={`Feedback on ${m.share?.title}`}
-            >
-              ···
-            </button>
           </div>
         ))}
       </div>

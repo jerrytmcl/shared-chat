@@ -3,14 +3,7 @@ import { Icon } from './Icon'
 import { MaterialRun } from './MaterialRun'
 import { groupMessages, formatTime } from '../lib/groupMessages'
 
-export function SearchPanel({
-  messages,
-  onClose,
-  onJump,
-  onShare,
-  onFeedback,
-  onSearch,
-}) {
+export function SearchPanel({ messages, onClose, onJump, onShare, onSearch }) {
   const [query, setQuery] = useState('')
   const [submitted, setSubmitted] = useState('')
   const [searched, setSearched] = useState(false)
@@ -120,15 +113,12 @@ export function SearchPanel({
               >
                 <div className="result-meta">
                   <span>{m.author_name || m.items?.[0]?.author_name}</span>
-                  <time>{formatTime(m.created_at)}</time>
+                  <time>
+                    {formatTime(m.items ? m.items[0].created_at : m.created_at)}
+                  </time>
                 </div>
                 {m.items ? (
-                  <MaterialRun
-                    items={m.items}
-                    result
-                    onJump={onJump}
-                    onFeedback={onFeedback}
-                  />
+                  <MaterialRun items={m.items} result onJump={onJump} />
                 ) : (
                   <>
                     <button
@@ -144,13 +134,6 @@ export function SearchPanel({
                       <button type="button" onClick={() => onJump(m.id)}>
                         Show in conversation ↗
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => onFeedback?.(m)}
-                        aria-label={`Feedback on result: ${m.body}`}
-                      >
-                        ···
-                      </button>
                     </div>
                   </>
                 )}
@@ -162,13 +145,6 @@ export function SearchPanel({
             <Icon name="search" />
             <h3>No matches.</h3>
             <p>Try a different word or phrase.</p>
-            <button
-              className="suggestion"
-              type="button"
-              onClick={() => onFeedback?.(null)}
-            >
-              Something missing?
-            </button>
           </div>
         )}
       </div>

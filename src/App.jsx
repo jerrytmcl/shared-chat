@@ -44,7 +44,7 @@ function ChatShell({ auth }) {
     useMessages(user)
   const [text, setText] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [feedback, setFeedback] = useState(null)
+  const [buildNoteOpen, setBuildNoteOpen] = useState(false)
   const [search, setSearch] = useState(null)
   const [drag, setDrag] = useState(false)
   const [intro, setIntro] = useState(true)
@@ -66,36 +66,20 @@ function ChatShell({ auth }) {
     setTimeout(() => el?.classList.remove('highlight'), 1800)
   }
 
-  function openFeedback(message) {
-    setFeedback(
-      message
-        ? { message, search }
-        : {
-            search,
-            messages: messages.slice(-6).map(({ share, ...m }) => ({
-              ...m,
-              share: share
-                ? {
-                    kind: share.kind,
-                    title: share.title,
-                    description: share.description,
-                  }
-                : undefined,
-            })),
-          }
-    )
+  function isOwn(m) {
+    return m.author_id === user.id
   }
 
-  async function send(e) {
+  const peerLabel =
+    messages.find((m) => m.author_id !== user.id)?.author_name || 'Friend'
+
+  function send(e) {
     e.preventDefault()
     const value = text.trim()
     if (!value) return
+    sendText(value)
     setText('')
-    await sendText(value)
   }
-
-  const peerLabel = isDemo ? 'Friend' : 'Shared Chat'
-  const isOwn = (m) => m.author_id === user.id
 
   return (
     <>
@@ -115,8 +99,8 @@ function ChatShell({ auth }) {
             <Icon name="search" />
             Search
           </button>
-          <button type="button" onClick={() => openFeedback(null)}>
-            Feedback
+          <button type="button" onClick={() => setBuildNoteOpen(true)}>
+            Note for next build
           </button>
           {!isDemo && (
             <button type="button" onClick={signOut}>
@@ -179,10 +163,7 @@ function ChatShell({ auth }) {
                   >
                     <div className="message-content">
                       {m.items ? (
-                        <MaterialRun
-                          items={m.items}
-                          onFeedback={openFeedback}
-                        />
+                        <MaterialRun items={m.items} />
                       ) : (
                         <>
                           {m.body && <p className="bubble">{m.body}</p>}
@@ -212,15 +193,6 @@ function ChatShell({ auth }) {
                             m.items ? m.items[0].created_at : m.created_at
                           )}
                         </time>
-                        {!m.items && (
-                          <button
-                            type="button"
-                            onClick={() => openFeedback(m)}
-                            aria-label={`Feedback on ${m.body}`}
-                          >
-                            ···
-                          </button>
-                        )}
                       </div>
                     </div>
                   </article>
@@ -300,7 +272,6 @@ function ChatShell({ auth }) {
             onClose={() => setSearchOpen(false)}
             onSearch={setSearch}
             onJump={jump}
-            onFeedback={openFeedback}
             onShare={(query, results) => {
               setMessages((ms) => [
                 ...ms,
@@ -334,11 +305,12 @@ function ChatShell({ auth }) {
         </div>
       )}
 
-      {feedback && (
+      {buildNoteOpen && (
         <Feedback
-          context={feedback}
+          messages={messages}
+          user={user}
           onClose={(message) => {
-            setFeedback(null)
+            setBuildNoteOpen(false)
             if (message) setNotice(message)
           }}
         />

@@ -98,3 +98,26 @@
 .run-item .thumb {
   object-fit: cover;
 }
+
+/* Photo expand */
+.attachment.is-expanded .attachment-head > svg:last-child { transform: rotate(90deg); }
+.media-expand { margin-bottom: 10px; }
+.full-image, .full-sample { width: 100%; max-height: min(70vh, 520px); height: auto; object-fit: contain; border-radius: 8px; display: block; background: #1c1c1e; }
+.run-item .full-image, .run-item .full-sample { max-height: min(60vh, 420px); width: 100%; height: auto; }
+.run-item .attachment.is-expanded { max-width: none; }
+.attachment-head { cursor: pointer; }
+
+/* Design notes dialog */
+.design-note-dialog textarea { min-height: 120px; }
+.design-note-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+.design-note-list { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; max-height: 240px; overflow: auto; }
+.design-note-list ul { list-style: none; margin: 0; padding: 0; }
+.design-note-list li { padding: 10px 0; border-bottom: 1px solid #eeeef2; }
+.design-note-list li strong { display: block; font-size: 13px; }
+.design-note-list li span { font-size: 11px; color: var(--muted); }
+.design-note-list li p { margin: 6px 0 0; font-size: 14px; white-space: pre-wrap; }
+
+.note-who { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+.note-who input { border: 1px solid #d8dde5; border-radius: 8px; padding: 10px 12px; font-size: 15px; color: inherit; }
+.note-who-stamped { margin: 0 0 12px; font-size: 13px; }
+.note-who-stamped strong { color: inherit; }

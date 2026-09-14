@@ -1,7 +1,7 @@
-export function SampleImage() {
+export function SampleImage({ className = '' }) {
   return (
     <svg
-      className="sample-image"
+      className={`sample-image ${className}`.trim()}
       viewBox="0 0 240 135"
       role="img"
       aria-label="Illustrative camera and cube, not a real screenshot"
