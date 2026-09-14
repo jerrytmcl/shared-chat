@@ -45,11 +45,24 @@ export function formatTime(iso) {
   }
 }
 
+export function hostnameFromUrl(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+/** Soft label for storage / search — not used for icons. */
 export function platformFromUrl(url) {
   try {
-    const host = new URL(url).hostname.replace(/^www\./, '')
-    if (host === 'x.com' || host === 'twitter.com') return 'X'
-    return 'Link'
+    const host = hostnameFromUrl(url)
+    if (!host) return 'Link'
+    if (host === 'x.com' || host === 'twitter.com' || host.endsWith('.twitter.com'))
+      return 'X'
+    if (host === 'substack.com' || host.endsWith('.substack.com'))
+      return 'Substack'
+    return host
   } catch {
     return 'Link'
   }
@@ -65,4 +78,41 @@ export function detectKindFromFile(file) {
 export function kindLabel(kind) {
   const map = { link: 'Link', image: 'Image', document: 'Document', gif: 'GIF' }
   return map[kind] || kind
+}
+
+/**
+ * Unique source marks for a material-run stack (max 3).
+ * Links use the site favicon from the hostname — no per-brand icons.
+ */
+export function sourceMarksForItems(items) {
+  const out = []
+  const seen = new Set()
+  for (const m of items) {
+    const share = m.share
+    if (!share) continue
+    let key
+    let mark
+    if (share.kind === 'image' || share.kind === 'gif') {
+      key = share.kind
+      mark = { type: 'icon', name: 'camera', label: kindLabel(share.kind) }
+    } else if (share.href) {
+      const host = hostnameFromUrl(share.href)
+      key = host || share.href
+      mark = host
+        ? { type: 'favicon', label: host, host }
+        : { type: 'icon', name: 'file', label: 'Link' }
+    } else {
+      key = share.kind || 'document'
+      mark = {
+        type: 'icon',
+        name: 'file',
+        label: kindLabel(share.kind) || 'File',
+      }
+    }
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(mark)
+    if (out.length >= 3) break
+  }
+  return out
 }

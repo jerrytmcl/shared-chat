@@ -1,6 +1,37 @@
 import { Icon } from './Icon'
 import { Attachment } from './Attachment'
-import { kindLabel } from '../lib/groupMessages'
+import { kindLabel, sourceMarksForItems } from '../lib/groupMessages'
+
+function faviconUrl(host) {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
+}
+
+function SourceMark({ mark }) {
+  if (mark.type === 'favicon' && mark.host) {
+    return (
+      <span className="source-mark source-favicon" title={mark.label}>
+        <img
+          src={faviconUrl(mark.host)}
+          alt=""
+          width="16"
+          height="16"
+          loading="lazy"
+          decoding="async"
+          onError={(e) => {
+            e.currentTarget.remove()
+            e.currentTarget.parentElement?.classList.add('source-favicon-fallback')
+          }}
+        />
+        <Icon name="file" />
+      </span>
+    )
+  }
+  return (
+    <span className="source-mark">
+      <Icon name={mark.name || 'file'} />
+    </span>
+  )
+}
 
 /**
  * Expandable material-run card for consecutive attachment-only messages
@@ -8,11 +39,7 @@ import { kindLabel } from '../lib/groupMessages'
  * Optional title/summary overrides used by living package messages.
  */
 export function MaterialRun({ items, onJump, result = false, title: titleProp, summary: summaryProp }) {
-  const kinds = [
-    ...new Set(
-      items.map((m) => m.share?.platform || kindLabel(m.share?.kind) || 'Link')
-    ),
-  ]
+  const marks = sourceMarksForItems(items)
   const demo = items.every((m) => /^m[3-6]$/.test(m.id))
   const title =
     titleProp ||
@@ -48,23 +75,11 @@ export function MaterialRun({ items, onJump, result = false, title: titleProp, s
     <details className="material-run">
       <summary>
         <span className="source-stack" aria-hidden="true">
-          {kinds.slice(0, 3).map((k) => (
-            <span
-              key={k}
-              className={'source-mark ' + (k === 'X' ? 'source-x' : '')}
-            >
-              {k === 'X' ? (
-                '𝕏'
-              ) : (
-                <Icon
-                  name={
-                    k === 'Image' || k === 'GIF' || k === 'image' || k === 'gif'
-                      ? 'camera'
-                      : 'file'
-                  }
-                />
-              )}
-            </span>
+          {marks.map((mark, i) => (
+            <SourceMark
+              key={`${mark.type}-${mark.host || mark.name || mark.label}-${i}`}
+              mark={mark}
+            />
           ))}
         </span>
         <span className="run-copy">
