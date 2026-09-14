@@ -3,7 +3,6 @@ import { Icon } from './Icon'
 
 export function AuthScreen({
   onMagicLink,
-  onGoogle,
   notice,
   isDemo,
   onEnterDemo,
@@ -44,31 +43,21 @@ export function AuthScreen({
             </button>
           </>
         ) : (
-          <>
-            <form onSubmit={submit} className="auth-form">
-              <label htmlFor="email">Email magic link</label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-              <button className="primary auth-btn" type="submit" disabled={busy}>
-                {busy ? 'Sending…' : 'Send magic link'}
-              </button>
-            </form>
-            <div className="auth-divider">or</div>
-            <button
-              className="auth-btn google-btn"
-              type="button"
-              onClick={onGoogle}
-            >
-              Continue with Google
+          <form onSubmit={submit} className="auth-form">
+            <label htmlFor="email">Email magic link</label>
+            <input
+              id="email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <button className="primary auth-btn" type="submit" disabled={busy}>
+              {busy ? 'Sending…' : 'Send magic link'}
             </button>
-          </>
+          </form>
         )}
 
         {notice && (

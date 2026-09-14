@@ -29,7 +29,6 @@ export default function App() {
         isDemo={auth.isDemo}
         notice={auth.authNotice}
         onMagicLink={auth.signInWithMagicLink}
-        onGoogle={auth.signInWithGoogle}
         onEnterDemo={() => setDemoEntered(true)}
       />
     )
