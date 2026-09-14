@@ -245,6 +245,84 @@ async function unfurlX(url) {
   }
 }
 
+
+function isInstagramUrl(url) {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+    return h === 'instagram.com' || h.endsWith('.instagram.com')
+  } catch {
+    return false
+  }
+}
+
+async function unfurlInstagram(url) {
+  // ddinstagram mirrors public OG like FxTwitter does for X
+  try {
+    const u = new URL(url)
+    const dd = `https://www.ddinstagram.com${u.pathname}${u.search || ''}`
+    const result = await unfurlOg(dd)
+    const title = (result.title || '').trim()
+    const desc = (result.description || '').trim()
+    if (
+      (title && title.toLowerCase() !== 'instagram') ||
+      (desc && desc.length >= 8)
+    ) {
+      let byline = (result.byline || '').trim()
+      // Prefer @user from path /p/… or /reel/… won't have it; /username/…
+      const parts = u.pathname.split('/').filter(Boolean)
+      if (!byline && parts[0] && !['p', 'reel', 'tv', 'stories'].includes(parts[0].toLowerCase())) {
+        byline = `@${parts[0]}`
+      }
+      console.log('unfurlIG path=ddinstagram', { url: url.slice(0, 80) })
+      return {
+        title: title && title.toLowerCase() !== 'instagram' ? title.slice(0, 120) : truncate(desc, 90),
+        description: desc.slice(0, 240) || undefined,
+        byline: byline || undefined,
+        platform: 'Instagram',
+        site: 'instagram.com',
+        _path: 'ddinstagram',
+      }
+    }
+  } catch (e) {
+    console.warn('unfurlIG ddinstagram failed', e.message || e)
+  }
+
+  try {
+    const oembed = `https://api.instagram.com/oembed/?url=${encodeURIComponent(url)}`
+    const resp = await fetchWithTimeout(oembed, {
+      headers: { Accept: 'application/json', 'User-Agent': UA },
+    })
+    if (resp.ok) {
+      const data = await resp.json()
+      const title = String(data.title || data.author_name || '').trim()
+      const byline = data.author_name ? `@${String(data.author_name).replace(/^@/, '')}` : undefined
+      if (title) {
+        console.log('unfurlIG path=oembed', { url: url.slice(0, 80) })
+        return {
+          title: title.slice(0, 120),
+          description: undefined,
+          byline,
+          platform: 'Instagram',
+          site: 'instagram.com',
+          _path: 'oembed',
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('unfurlIG oembed failed', e.message || e)
+  }
+
+  console.log('unfurlIG path=fallback', { url: url.slice(0, 80) })
+  return {
+    title: 'Instagram post',
+    description: 'Preview unavailable — open to view.',
+    byline: undefined,
+    platform: 'Instagram',
+    site: 'instagram.com',
+    _path: 'fallback',
+  }
+}
+
 async function unfurlOg(url) {
   const resp = await fetchWithTimeout(url, {
     headers: {
@@ -364,6 +442,8 @@ export default async function handler(req, res) {
     let result
     if (isXHost(parsed.hostname)) {
       result = await unfurlX(url)
+    } else if (isInstagramUrl(url)) {
+      result = await unfurlInstagram(url)
     } else {
       result = await unfurlOg(url)
     }

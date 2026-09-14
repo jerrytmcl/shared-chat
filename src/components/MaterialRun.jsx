@@ -48,42 +48,40 @@ function RunLinkRow({ share, onJump, messageId, result, geminiSummary }) {
   const host = href ? hostnameFromUrl(href) : ''
   // Prefer Gemini one-liner; else short heuristic row summary
   const label = (geminiSummary && geminiSummary.trim()) || shareRowSummary(share)
-  const secondary = shareSecondaryLine(share)
+  const secondary = shareSecondaryLine(share) || host
+  const meta = (
+    <span className="run-row-meta">
+      {host ? (
+        <img
+          className="run-row-favicon"
+          src={faviconUrl(host)}
+          alt=""
+          width="14"
+          height="14"
+          loading="lazy"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none'
+          }}
+        />
+      ) : null}
+      {secondary ? <small>{secondary}</small> : null}
+    </span>
+  )
   const inner = (
-    <>
-      <span className="run-row-icon">
-        {host ? (
-          <img
-            className="run-row-favicon"
-            src={faviconUrl(host)}
-            alt=""
-            width="16"
-            height="16"
-            loading="lazy"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none'
-            }}
-          />
-        ) : (
-          <Icon name="file" />
-        )}
-      </span>
-      <span className="run-row-copy">
-        <strong>{label}</strong>
-        {secondary ? <small>{secondary}</small> : host ? <small>{host}</small> : null}
-      </span>
-      <Icon name="chevron" />
-    </>
+    <span className="run-row-copy">
+      <strong className="run-row-title">{label}</strong>
+      {meta}
+    </span>
   )
 
   return (
     <div className="run-item" id={result ? undefined : messageId}>
       {href ? (
-        <a className="run-row" href={href} target="_blank" rel="noreferrer">
+        <a className="run-row run-row-link" href={href} target="_blank" rel="noreferrer">
           {inner}
         </a>
       ) : (
-        <div className="run-row">{inner}</div>
+        <div className="run-row run-row-link">{inner}</div>
       )}
       {result && (
         <button
@@ -119,10 +117,11 @@ function RunMediaRow({ share, onJump, messageId, result, onOpenLightbox }) {
           )}
         </span>
         <span className="run-row-copy">
-          <strong>{label}</strong>
-          <small>{kindLabel(share.kind)}</small>
+          <strong className="run-row-title">{label}</strong>
+          <span className="run-row-meta">
+            <small>{kindLabel(share.kind)}</small>
+          </span>
         </span>
-        <Icon name="chevron" />
       </button>
       {result && (
         <button
@@ -149,7 +148,7 @@ function RunDocRow({ share, onJump, messageId, result }) {
         <strong>{label}</strong>
         <small>{kindLabel(share.kind || 'document')}</small>
       </span>
-      <Icon name="chevron" />
+      
     </>
   )
 

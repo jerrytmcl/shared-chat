@@ -383,13 +383,20 @@ export function shareSecondaryLine(share) {
     byline = share.title.trim()
   }
 
-  if (byline && host) {
-    // Avoid "@foo · @foo"
-    if (byline.toLowerCase() === `@${host}` || byline.toLowerCase() === host) {
-      return byline
+  // Never treat "@instagram.com" / "@x.com" as a person handle
+  if (byline) {
+    const bare = byline.replace(/^@/, '').toLowerCase()
+    if (
+      !bare ||
+      bare === host ||
+      bare === host.replace(/^www\./, '') ||
+      /\.(com|org|net|io|app|co|ai|md)$/i.test(bare)
+    ) {
+      byline = ''
     }
-    return `${byline} · ${host}`
   }
+
+  if (byline && host) return `${byline} · ${host}`
   if (byline) return byline
   return host || ''
 }
