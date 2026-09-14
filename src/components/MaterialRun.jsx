@@ -248,20 +248,20 @@ export function MaterialRun({
       <div className="material-run-wrap">
         <details className="material-run">
           <summary>
-            <span className="source-stack" aria-hidden="true">
-              {marks.map((mark, i) => (
-                <SourceMark
-                  key={`${mark.type}-${mark.host || mark.name || mark.label}-${i}`}
-                  mark={mark}
-                />
-              ))}
+            <span className="run-summary-top">
+              <span className="source-stack" aria-hidden="true">
+                {marks.map((mark, i) => (
+                  <SourceMark
+                    key={`${mark.type}-${mark.host || mark.name || mark.label}-${i}`}
+                    mark={mark}
+                  />
+                ))}
+              </span>
+              <strong className="run-title">{title}</strong>
+              <Icon name="chevron" />
             </span>
-            <span className="run-copy">
-              <strong>{title}</strong>
-              {subtitle ? <span className="run-blurb">{subtitle}</span> : null}
-              {spanLabel ? <small className="run-span">{spanLabel}</small> : null}
-            </span>
-            <Icon name="chevron" />
+            {subtitle ? <span className="run-blurb">{subtitle}</span> : null}
+            {spanLabel ? <small className="run-span">{spanLabel}</small> : null}
           </summary>
           <div className="run-items">
             {items.map((m, i) => (
