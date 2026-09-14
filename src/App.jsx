@@ -7,7 +7,6 @@ import { AuthScreen } from './components/AuthScreen'
 import { useAuth } from './hooks/useAuth'
 import { useMessages } from './hooks/useMessages'
 import { groupMessages, formatTime } from './lib/groupMessages'
-import { isSupabaseConfigured } from './lib/supabase'
 import './style.css'
 
 export default function App() {
@@ -46,7 +45,6 @@ function ChatShell({ auth }) {
   const [buildNoteOpen, setBuildNoteOpen] = useState(false)
   const [search, setSearch] = useState(null)
   const [drag, setDrag] = useState(false)
-  const [intro, setIntro] = useState(true)
   const list = useRef(null)
   const file = useRef(null)
 
@@ -109,20 +107,6 @@ function ChatShell({ auth }) {
         </nav>
       </header>
 
-      {intro && (
-        <div className="study-note">
-          {isDemo || !isSupabaseConfigured
-            ? 'Local demo · sample conversation · changes reset on refresh'
-            : 'Shared chat · realtime when connected'}
-          <button
-            type="button"
-            onClick={() => setIntro(false)}
-            aria-label="Dismiss note"
-          >
-            <Icon name="close" />
-          </button>
-        </div>
-      )}
 
       <main>
         <section
@@ -143,7 +127,14 @@ function ChatShell({ auth }) {
           <div className="messages" ref={list}>
             <div className="message-width">
               <div className="day-divider">
-                Today <span>{formatTime(messages[0]?.created_at) || ''}</span>
+                Today{' '}
+                <span>
+                  {formatTime(messages[0]?.created_at) ||
+                    new Date().toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                </span>
               </div>
               {groupMessages(messages).map((m, index, groups) => {
                 const own = isOwn(m.items ? m.items[0] : m)

@@ -5,31 +5,15 @@ import {
   getDiagnosticSnapshot,
   recentChatSlice,
 } from '../lib/diagnostics'
+import {
+  supabase,
+  isSupabaseConfigured,
+  CONVERSATION_ID,
+  STORAGE_BUCKET,
+} from '../lib/supabase'
 
-const ISSUES_NEW = 'https://github.com/jerrytmcl/shared-chat/issues/new'
 const APP_VERSION = 'shared-chat-0.1.0'
 
-function downloadBlob(filename, blob) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 2000)
-}
-
-function downloadJson(filename, data) {
-  downloadBlob(
-    filename,
-    new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  )
-}
-
-/**
- * Note for next build → GitHub Issues + auto-downloaded context pack.
- * Capture bag is soft and will grow: note, who, time, version,
- * recent chat, UI screenshot, console errors, failed network calls.
- */
 function identityFromUser(user) {
   if (!user) return null
   const name = (user.display_name || user.user_metadata?.full_name || '').trim()
@@ -41,6 +25,19 @@ function identityFromUser(user) {
   return null
 }
 
+function dataUrlToBlob(dataUrl) {
+  const [header, b64] = dataUrl.split(',')
+  const mime = /data:(.*?);/.exec(header)?.[1] || 'image/png'
+  const binary = atob(b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return new Blob([bytes], { type: mime })
+}
+
+/**
+ * Note for next build → Supabase build_notes (+ screenshot in chat-media).
+ * Capture bag is soft and will grow.
+ */
 export function Feedback({ messages = [], user = null, onClose }) {
   const authedWho = identityFromUser(user)
   const [thoughts, setThoughts] = useState('')
@@ -56,19 +53,23 @@ export function Feedback({ messages = [], user = null, onClose }) {
   async function submit() {
     const text = thoughts.trim()
     if (!text || busy) return
+    if (!isSupabaseConfigured || !supabase || !user?.id) {
+      setError('Sign in to file a build note.')
+      return
+    }
     setBusy(true)
     setError('')
 
-    const id = crypto.randomUUID().slice(0, 8)
     const when = new Date().toISOString()
     const diag = getDiagnosticSnapshot()
     const chat = recentChatSlice(messages, 10)
+    const from = authedWho || who.trim() || 'unspecified'
 
-    let screenshotDataUrl = null
+    let screenshotPath = null
     try {
       const root = document.getElementById('root')
       if (root) {
-        screenshotDataUrl = await toPng(root, {
+        const dataUrl = await toPng(root, {
           cacheBust: true,
           pixelRatio: 1.5,
           filter: (node) => {
@@ -76,6 +77,16 @@ export function Feedback({ messages = [], user = null, onClose }) {
             return !node.classList?.contains('design-note-dialog')
           },
         })
+        const blob = dataUrlToBlob(dataUrl)
+        const path = `build-notes/${user.id}/${Date.now()}.png`
+        const { error: upErr } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .upload(path, blob, { contentType: 'image/png', upsert: false })
+        if (upErr) {
+          setError(`Screenshot upload failed: ${upErr.message}`)
+        } else {
+          screenshotPath = path
+        }
       }
     } catch (e) {
       setError(
@@ -84,72 +95,25 @@ export function Feedback({ messages = [], user = null, onClose }) {
       )
     }
 
-    const from = authedWho || who.trim() || 'unspecified'
-    const packet = {
-      id,
-      appVersion: APP_VERSION,
-      createdAt: when,
-      from,
-      authUserId: user?.id || null,
+    const { error: insertErr } = await supabase.from('build_notes').insert({
+      conversation_id: CONVERSATION_ID,
+      author_id: user.id,
+      author_label: from,
       thoughts: text,
-      recentChat: chat,
-      consoleErrors: diag.consoleErrors,
-      networkFailures: diag.networkFailures,
-      screenshotIncluded: Boolean(screenshotDataUrl),
-    }
+      app_version: APP_VERSION,
+      screenshot_path: screenshotPath,
+      recent_chat: chat,
+      console_errors: diag.consoleErrors,
+      network_failures: diag.networkFailures,
+      context: { filedAt: when },
+    })
 
-    downloadJson(`build-note-${id}.json`, packet)
-
-    if (screenshotDataUrl) {
-      const res = await fetch(screenshotDataUrl)
-      downloadBlob(`build-note-${id}.png`, await res.blob())
-    }
-
-    const title = text.length > 72 ? text.slice(0, 69).trim() + '…' : text
-    const body = [
-      text,
-      '',
-      '---',
-      `From: ${packet.from}`,
-      `When: ${when}`,
-      `App: ${APP_VERSION}`,
-      '',
-      '### Attach these downloads to this issue',
-      `- \`build-note-${id}.json\` (chat slice, console errors, failed network)`,
-      screenshotDataUrl
-        ? `- \`build-note-${id}.png\` (auto UI screenshot)`
-        : '- Screenshot capture failed in-browser',
-      '',
-      '### Recent chat (last 10)',
-      '```json',
-      JSON.stringify(chat, null, 2).slice(0, 3500),
-      '```',
-      '',
-      '### Console errors',
-      '```json',
-      JSON.stringify(diag.consoleErrors.slice(-10), null, 2).slice(0, 2000),
-      '```',
-      '',
-      '### Failed network',
-      '```json',
-      JSON.stringify(diag.networkFailures.slice(-10), null, 2).slice(0, 2000),
-      '```',
-      '',
-      '_Filed via **Note for next build**_',
-    ].join('\n')
-
-    const url =
-      ISSUES_NEW +
-      '?title=' +
-      encodeURIComponent(title) +
-      '&body=' +
-      encodeURIComponent(body.slice(0, 5500))
-
-    window.open(url, '_blank', 'noopener,noreferrer')
     setBusy(false)
-    onClose(
-      'Downloaded context pack + opened GitHub issue — attach the files on the issue, then Submit.'
-    )
+    if (insertErr) {
+      setError(`Could not save note: ${insertErr.message}`)
+      return
+    }
+    onClose('Build note saved. Jerry & Chatty can pick it up from Supabase.')
   }
 
   return (
@@ -173,9 +137,9 @@ export function Feedback({ messages = [], user = null, onClose }) {
         </button>
       </div>
       <p className="muted">
-        What’s broken, confusing, or worth keeping. Auto-grabs UI screenshot,
-        recent chat, console errors, and failed network calls — then opens a
-        GitHub issue for Jerry + Corey.
+        What’s broken, confusing, or worth keeping. Saves screenshot, recent
+        chat, console errors, and failed network calls to Supabase for Jerry +
+        Corey.
       </p>
       {authedWho ? (
         <p className="note-who-stamped muted">
@@ -213,13 +177,12 @@ export function Feedback({ messages = [], user = null, onClose }) {
           disabled={!thoughts.trim() || busy || (!authedWho && !who.trim())}
           onClick={submit}
         >
-          {busy ? 'Capturing…' : 'File note'}
+          {busy ? 'Saving…' : 'Save note'}
         </button>
       </div>
       <p className="search-note">
-        Downloads a .png + .json, then opens GitHub. Drop those files onto the
-        issue and hit Submit. Invite Corey as a collaborator on the private
-        repo. ⌘/Ctrl+Enter works.
+        One click — no downloads. Notes land in the <code>build_notes</code>{' '}
+        table. ⌘/Ctrl+Enter works.
       </p>
     </dialog>
   )

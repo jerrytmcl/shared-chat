@@ -147,16 +147,28 @@ export function useMessages(user) {
   }, [user])
 
   const ensureMember = useCallback(async () => {
-    if (!supabase || !user) return
-    await supabase.from('conversation_members').upsert(
-      {
-        conversation_id: CONVERSATION_ID,
-        user_id: user.id,
-        role: 'member',
-      },
-      { onConflict: 'conversation_id,user_id' }
-    )
+    if (!supabase || !user || user.id === DEMO_USER.id) return { error: null }
+    // Prefer insert; ignore duplicate. Avoid upsert (needs UPDATE RLS).
+    const { error } = await supabase.from('conversation_members').insert({
+      conversation_id: CONVERSATION_ID,
+      user_id: user.id,
+      role: 'member',
+    })
+    if (error && error.code !== '23505') {
+      // 23505 = unique_violation (already a member)
+      return { error }
+    }
+    return { error: null }
   }, [user])
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase || !user || user.id === DEMO_USER.id) {
+      return
+    }
+    ensureMember().then(({ error }) => {
+      if (error) setNotice(`Could not join conversation: ${error.message}`)
+    })
+  }, [user, ensureMember])
 
   const sendText = useCallback(
     async (text) => {
@@ -197,14 +209,48 @@ export function useMessages(user) {
         return
       }
 
-      await ensureMember()
-      const { error } = await supabase.from('messages').insert({
-        conversation_id: CONVERSATION_ID,
+      const join = await ensureMember()
+      if (join?.error) {
+        setNotice(`Could not join conversation: ${join.error.message}`)
+        return
+      }
+
+      const tempId = `temp-${crypto.randomUUID()}`
+      const optimistic = {
+        id: tempId,
         author_id: user.id,
+        author_name: user.display_name || 'You',
         kind: 'text',
         body: value,
-      })
-      if (error) setNotice(error.message)
+        share: null,
+        created_at: new Date().toISOString(),
+      }
+      setMessages((ms) => [...ms, optimistic])
+
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: CONVERSATION_ID,
+          author_id: user.id,
+          kind: 'text',
+          body: value,
+        })
+        .select('id, created_at')
+        .single()
+
+      if (error) {
+        setMessages((ms) => ms.filter((m) => m.id !== tempId))
+        setNotice(`Message failed: ${error.message}`)
+        return
+      }
+
+      setMessages((ms) =>
+        ms.map((m) =>
+          m.id === tempId
+            ? { ...m, id: data.id, created_at: data.created_at }
+            : m
+        )
+      )
     },
     [user, ensureMember]
   )
@@ -246,7 +292,11 @@ export function useMessages(user) {
         return
       }
 
-      await ensureMember()
+      const join = await ensureMember()
+      if (join?.error) {
+        setNotice(`Could not join conversation: ${join.error.message}`)
+        return
+      }
       const { data: share, error: shareErr } = await supabase
         .from('original_shares')
         .insert({
@@ -310,7 +360,11 @@ export function useMessages(user) {
           continue
         }
 
-        await ensureMember()
+        const join = await ensureMember()
+        if (join?.error) {
+          setNotice(`Could not join conversation: ${join.error.message}`)
+          continue
+        }
         const path = `${CONVERSATION_ID}/${user.id}/${Date.now()}-${file.name}`
         const { error: upErr } = await supabase.storage
           .from(STORAGE_BUCKET)
