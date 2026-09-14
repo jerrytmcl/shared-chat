@@ -17,7 +17,10 @@ const cors = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash']
+const GEMINI_MODELS = (process.env.GEMINI_MODELS || 'gemini-3.5-flash-lite,gemini-3.6-flash')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
 
 let activeTrace = null
 function slog(...args) {

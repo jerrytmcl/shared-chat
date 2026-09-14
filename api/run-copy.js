@@ -6,7 +6,7 @@
  * Body: { items: [{ title, description, kind, href, platform, byline }] }
  * Returns: { title, summary }
  *
- * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY (optional)
+ * Env: SUPABASE_URL, anon/service key, GEMINI_API_KEY, optional GEMINI_MODELS (comma-separated)
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -17,7 +17,10 @@ const cors = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.6-flash']
+const GEMINI_MODELS = (process.env.GEMINI_MODELS || 'gemini-3.5-flash-lite,gemini-3.6-flash')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
 
 function json(res, status, body) {
   res.statusCode = status
