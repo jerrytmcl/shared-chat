@@ -66,9 +66,11 @@ function hasRecentChip(messages) {
  */
 export function useMessages(user) {
   const [messages, setMessages] = useState([])
+  const [reactions, setReactions] = useState({}) // messageId -> [{ id, emoji, user_id }]
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const profilesRef = useRef({})
+  const reactionsRef = useRef({})
   const messagesRef = useRef([])
   const suggestTimer = useRef(null)
   const suggestInFlight = useRef(false)
@@ -77,6 +79,10 @@ export function useMessages(user) {
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+
+  useEffect(() => {
+    reactionsRef.current = reactions
+  }, [reactions])
 
   const resolvePackages = useCallback(async (mapped) => {
     if (!supabase) return mapped
@@ -120,9 +126,20 @@ export function useMessages(user) {
     })
   }, [])
 
+  const buildReactionsMap = (rows) => {
+    const map = {}
+    for (const r of rows || []) {
+      const mid = r.message_id
+      if (!map[mid]) map[mid] = []
+      map[mid].push({ id: r.id, emoji: r.emoji, user_id: r.user_id })
+    }
+    return map
+  }
+
   const load = useCallback(async () => {
     if (!isSupabaseConfigured || !supabase || !user || user.id === DEMO_USER.id) {
       setMessages(DEMO_MESSAGES)
+      setReactions({})
       setLoading(false)
       return
     }
@@ -161,10 +178,22 @@ export function useMessages(user) {
       })
       mapped = await resolvePackages(mapped)
       setMessages(mapped)
+
+      const { data: reactionRows, error: reactionErr } = await supabase
+        .from('message_reactions')
+        .select('id, message_id, user_id, emoji, conversation_id')
+        .eq('conversation_id', CONVERSATION_ID)
+      if (reactionErr) {
+        console.warn('reactions load', reactionErr)
+        setReactions({})
+      } else {
+        setReactions(buildReactionsMap(reactionRows))
+      }
     } catch (e) {
       console.error(e)
       setNotice(`Could not load messages: ${e.message}. Falling back to demo data.`)
       setMessages(DEMO_MESSAGES)
+      setReactions({})
     } finally {
       setLoading(false)
     }
@@ -234,6 +263,64 @@ export function useMessages(user) {
                 : m
             )
           )
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'message_reactions',
+          filter: `conversation_id=eq.${CONVERSATION_ID}`,
+        },
+        (payload) => {
+          const event = payload.eventType
+          if (event === 'INSERT') {
+            const row = payload.new
+            setReactions((prev) => {
+              const list = prev[row.message_id] || []
+              if (list.some((r) => r.id === row.id)) return prev
+              // also drop any prior reaction by same user on this message
+              const cleaned = list.filter((r) => r.user_id !== row.user_id)
+              return {
+                ...prev,
+                [row.message_id]: [
+                  ...cleaned,
+                  { id: row.id, emoji: row.emoji, user_id: row.user_id },
+                ],
+              }
+            })
+          } else if (event === 'UPDATE') {
+            const row = payload.new
+            setReactions((prev) => {
+              const list = (prev[row.message_id] || []).map((r) =>
+                r.id === row.id || r.user_id === row.user_id
+                  ? { id: row.id, emoji: row.emoji, user_id: row.user_id }
+                  : r
+              )
+              const has = list.some((r) => r.id === row.id || r.user_id === row.user_id)
+              return {
+                ...prev,
+                [row.message_id]: has
+                  ? list
+                  : [
+                      ...list.filter((r) => r.user_id !== row.user_id),
+                      { id: row.id, emoji: row.emoji, user_id: row.user_id },
+                    ],
+              }
+            })
+          } else if (event === 'DELETE') {
+            const row = payload.old
+            setReactions((prev) => {
+              const list = (prev[row.message_id] || []).filter(
+                (r) => r.id !== row.id && !(row.user_id && r.user_id === row.user_id)
+              )
+              const next = { ...prev }
+              if (list.length) next[row.message_id] = list
+              else delete next[row.message_id]
+              return next
+            })
+          }
         }
       )
       .subscribe()
@@ -800,9 +887,106 @@ export function useMessages(user) {
     [user, ensureMember]
   )
 
+  const toggleReaction = useCallback(
+    async (messageId, emoji) => {
+      if (!user || !messageId || !emoji) return
+      const list = reactionsRef.current[messageId] || []
+      const mine = list.find((r) => r.user_id === user.id)
+      const demo = !isSupabaseConfigured || !supabase || user.id === DEMO_USER.id
+
+      // Optimistic local update
+      setReactions((prev) => {
+        const cur = prev[messageId] || []
+        const withoutMine = cur.filter((r) => r.user_id !== user.id)
+        if (mine && mine.emoji === emoji) {
+          const next = { ...prev }
+          if (withoutMine.length) next[messageId] = withoutMine
+          else delete next[messageId]
+          return next
+        }
+        const optimistic = {
+          id: mine?.id || `local-${crypto.randomUUID()}`,
+          emoji,
+          user_id: user.id,
+        }
+        return { ...prev, [messageId]: [...withoutMine, optimistic] }
+      })
+
+      if (demo) return
+
+      try {
+        if (mine && mine.emoji === emoji) {
+          const { error } = await supabase
+            .from('message_reactions')
+            .delete()
+            .eq('message_id', messageId)
+            .eq('user_id', user.id)
+          if (error) throw error
+        } else if (mine) {
+          const { data, error } = await supabase
+            .from('message_reactions')
+            .update({ emoji })
+            .eq('message_id', messageId)
+            .eq('user_id', user.id)
+            .select('id, emoji, user_id, message_id')
+            .single()
+          if (error) throw error
+          if (data) {
+            setReactions((prev) => {
+              const cur = (prev[messageId] || []).filter((r) => r.user_id !== user.id)
+              return {
+                ...prev,
+                [messageId]: [
+                  ...cur,
+                  { id: data.id, emoji: data.emoji, user_id: data.user_id },
+                ],
+              }
+            })
+          }
+        } else {
+          const { data, error } = await supabase
+            .from('message_reactions')
+            .insert({
+              conversation_id: CONVERSATION_ID,
+              message_id: messageId,
+              user_id: user.id,
+              emoji,
+            })
+            .select('id, emoji, user_id, message_id')
+            .single()
+          if (error) throw error
+          if (data) {
+            setReactions((prev) => {
+              const cur = (prev[messageId] || []).filter((r) => r.user_id !== user.id)
+              return {
+                ...prev,
+                [messageId]: [
+                  ...cur,
+                  { id: data.id, emoji: data.emoji, user_id: data.user_id },
+                ],
+              }
+            })
+          }
+        }
+      } catch (e) {
+        console.error(e)
+        setNotice(`Reaction failed: ${e.message}`)
+        // reload reactions from server best-effort
+        const { data: reactionRows } = await supabase
+          .from('message_reactions')
+          .select('id, message_id, user_id, emoji')
+          .eq('conversation_id', CONVERSATION_ID)
+        if (reactionRows) setReactions(buildReactionsMap(reactionRows))
+      }
+    },
+    [user]
+  )
+
   return {
     messages,
     setMessages,
+    reactions,
+    toggleReaction,
     loading,
     notice,
     setNotice,

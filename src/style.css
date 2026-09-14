@@ -262,3 +262,250 @@
   overflow: auto;
   white-space: pre-wrap;
 }
+
+/* --- UX pack: flat material-run rows, in-bubble times, reactions --- */
+
+/* Hide legacy stacked message-meta row (times live inside bubbles/cards) */
+.message-meta {
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: none !important;
+  overflow: hidden;
+}
+
+.bubble {
+  position: relative;
+  padding-bottom: 16px;
+}
+.bubble-time {
+  float: right;
+  margin: 4px 0 -2px 8px;
+  font-size: 10px;
+  opacity: 0.7;
+  white-space: nowrap;
+  letter-spacing: 0;
+  color: inherit;
+}
+.own .bubble-time {
+  color: rgba(255, 255, 255, 0.78);
+  opacity: 1;
+}
+.message:not(.own) .bubble-time {
+  color: #8a8a93;
+  opacity: 1;
+}
+
+.material-run {
+  position: relative;
+  padding-bottom: 4px;
+}
+.material-run > summary {
+  padding-right: 36px;
+}
+.run-time {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  font-size: 10px;
+  color: #8a8a93;
+  letter-spacing: 0;
+  line-height: 1;
+  pointer-events: none;
+}
+.own .run-time {
+  color: #7a8aa0;
+}
+.card-with-time {
+  position: relative;
+  padding-bottom: 14px;
+}
+.card-with-time .run-time {
+  bottom: 2px;
+}
+.card-with-time .suggestion-chip,
+.card-with-time .material-run {
+  margin: 0;
+}
+
+/* Flat run rows (no Attachment accordion) */
+.run-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  text-decoration: none;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  padding: 8px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.run-row:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+.own .run-row:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+.run-row > svg:last-child {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: #7d8999;
+  margin-left: auto;
+}
+.run-row-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+}
+.run-row-icon svg {
+  width: 16px;
+  height: 16px;
+  color: #63778b;
+}
+.run-row-favicon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  border-radius: 3px;
+}
+.run-row-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  display: block;
+}
+.run-row-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.run-row-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.run-row-copy small {
+  font-size: 11px;
+  color: #617083;
+}
+.run-row-expand {
+  padding: 4px 4px 8px;
+}
+.run-row-expand .full-image {
+  width: 100%;
+  max-height: min(60vh, 420px);
+  object-fit: contain;
+  border-radius: 8px;
+  display: block;
+  background: #1c1c1e;
+}
+.run-item {
+  display: block;
+  border-top: 1px solid #cfdded;
+  padding: 2px 0;
+  scroll-margin: 40px;
+}
+.run-item .source-jump {
+  display: block;
+  margin-left: 4px;
+}
+
+/* Reactions */
+.message-reactions {
+  position: relative;
+  margin-top: -6px;
+  margin-bottom: 2px;
+  padding: 0 2px;
+  min-height: 0;
+}
+.message-reactions.has-pills {
+  margin-top: -8px;
+}
+.reaction-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #e2e5ea;
+  background: #fff;
+  border-radius: 999px;
+  padding: 2px 8px 2px 6px;
+  font-size: 13px;
+  line-height: 1.2;
+  box-shadow: 0 1px 3px #00000014;
+  min-height: 24px;
+}
+.reaction-pill:hover {
+  background: #f7f8fa;
+}
+.reaction-pill.is-mine {
+  border-color: #9ec4f5;
+  background: #edf5ff;
+}
+.reaction-count {
+  font-size: 11px;
+  color: #5c6675;
+  font-weight: 500;
+}
+.reaction-picker {
+  display: none;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid #e2e5ea;
+  border-radius: 999px;
+  box-shadow: 0 4px 16px #00000018;
+  width: max-content;
+  max-width: 100%;
+}
+.reaction-picker.is-visible,
+.message-reactions:hover .reaction-picker,
+.message-reactions:focus-within .reaction-picker {
+  display: inline-flex;
+}
+.reaction-pick {
+  border: 0;
+  background: transparent;
+  padding: 4px 6px;
+  border-radius: 50%;
+  font-size: 16px;
+  line-height: 1;
+  min-width: 28px;
+}
+.reaction-pick:hover {
+  background: #f0f2f5;
+}
+.message.own .message-reactions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.message.is-chip .message-reactions {
+  align-items: center;
+}
+.message-reactions.is-empty {
+  min-height: 8px;
+  margin-top: 2px;
+}
+.message:hover .message-reactions.is-empty .reaction-picker,
+.message:focus-within .message-reactions.is-empty .reaction-picker {
+  display: inline-flex;
+}

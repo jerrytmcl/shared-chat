@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Icon } from './components/Icon'
 import { MaterialRun } from './components/MaterialRun'
+import { MessageReactions } from './components/MessageReactions'
 import { SuggestionChip } from './components/SuggestionChip'
 import { LivingPackage } from './components/LivingPackage'
 import { SearchPanel } from './components/SearchPanel'
@@ -44,6 +45,8 @@ function ChatShell({ auth }) {
   const {
     messages,
     setMessages,
+    reactions,
+    toggleReaction,
     notice,
     setNotice,
     sendText,
@@ -204,18 +207,64 @@ function ChatShell({ auth }) {
                   >
                     <div className="message-content">
                       {m.items ? (
-                        <MaterialRun items={m.items} />
+                        <>
+                          <MaterialRun
+                            items={m.items}
+                            timeLabel={formatTime(m.items[0]?.created_at)}
+                          />
+                          <MessageReactions
+                            messageId={m.items[0]?.id}
+                            reactions={reactions[m.items[0]?.id] || []}
+                            currentUserId={user.id}
+                            onToggle={(emoji) =>
+                              toggleReaction(m.items[0]?.id, emoji)
+                            }
+                          />
+                        </>
                       ) : isChip ? (
-                        <SuggestionChip
-                          message={m}
-                          onShow={onShowChip}
-                          busy={chipBusy}
-                        />
+                        <>
+                          <div className="card-with-time">
+                            <SuggestionChip
+                              message={m}
+                              onShow={onShowChip}
+                              busy={chipBusy}
+                            />
+                            <time className="run-time">
+                              {formatTime(m.created_at)}
+                            </time>
+                          </div>
+                          <MessageReactions
+                            messageId={m.id}
+                            reactions={reactions[m.id] || []}
+                            currentUserId={user.id}
+                            onToggle={(emoji) => toggleReaction(m.id, emoji)}
+                          />
+                        </>
                       ) : isPackage ? (
-                        <LivingPackage message={m} />
+                        <>
+                          <div className="card-with-time">
+                            <LivingPackage message={m} />
+                            <time className="run-time">
+                              {formatTime(m.created_at)}
+                            </time>
+                          </div>
+                          <MessageReactions
+                            messageId={m.id}
+                            reactions={reactions[m.id] || []}
+                            currentUserId={user.id}
+                            onToggle={(emoji) => toggleReaction(m.id, emoji)}
+                          />
+                        </>
                       ) : (
                         <>
-                          {m.body && <p className="bubble">{m.body}</p>}
+                          {m.body && (
+                            <p className="bubble">
+                              {m.body}
+                              <time className="bubble-time">
+                                {formatTime(m.created_at)}
+                              </time>
+                            </p>
+                          )}
                           {m.source_ids?.length > 0 && (
                             <details className="shared-results">
                               <summary>
@@ -234,15 +283,14 @@ function ChatShell({ auth }) {
                               ))}
                             </details>
                           )}
+                          <MessageReactions
+                            messageId={m.id}
+                            reactions={reactions[m.id] || []}
+                            currentUserId={user.id}
+                            onToggle={(emoji) => toggleReaction(m.id, emoji)}
+                          />
                         </>
                       )}
-                      <div className="message-meta">
-                        <time>
-                          {formatTime(
-                            m.items ? m.items[0].created_at : m.created_at
-                          )}
-                        </time>
-                      </div>
                     </div>
                   </article>
                 )
