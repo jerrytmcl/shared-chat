@@ -48,6 +48,8 @@ function ChatShell({ auth }) {
     setMessages,
     reactions,
     toggleReaction,
+    peerName,
+    loading,
     notice,
     setNotice,
     sendText,
@@ -100,8 +102,11 @@ function ChatShell({ auth }) {
     return m.author_id === user.id
   }
 
+  // Prefer shared profile name; never flash the fake "Friend" placeholder
   const peerLabel =
-    messages.find((m) => m.author_id !== user.id)?.author_name || 'Friend'
+    peerName ||
+    messages.find((m) => m.author_id !== user.id)?.author_name ||
+    ''
 
   function send(e) {
     e.preventDefault()
@@ -126,9 +131,9 @@ function ChatShell({ auth }) {
       <header>
         <div className="title">
           <span className="avatars">
-            <i>{(peerLabel[0] || 'F').toUpperCase()}</i>
+            <i>{peerLabel ? peerLabel[0].toUpperCase() : '·'}</i>
           </span>
-          <h1>{peerLabel}</h1>
+          <h1>{peerLabel || (loading ? '' : 'Chat')}</h1>
         </div>
         <nav>
           <button

@@ -86,6 +86,14 @@ function hasRecentChip(messages) {
 export function useMessages(user) {
   const [messages, setMessages] = useState([])
   const [reactions, setReactions] = useState({}) // messageId -> [{ id, emoji, user_id }]
+  const peerCacheKey = `shared-chat:peer:${CONVERSATION_ID}`
+  const [peerName, setPeerName] = useState(() => {
+    try {
+      return localStorage.getItem(peerCacheKey) || ''
+    } catch {
+      return ''
+    }
+  })
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const profilesRef = useRef({})
@@ -183,6 +191,19 @@ export function useMessages(user) {
         }
       }
       profilesRef.current = profiles
+
+      const peerProfile = Object.values(profiles).find((pr) => pr.id && pr.id !== user.id)
+      if (peerProfile) {
+        const label = niceName(peerProfile)
+        if (label) {
+          setPeerName(label)
+          try {
+            localStorage.setItem(peerCacheKey, label)
+          } catch {
+            /* ignore */
+          }
+        }
+      }
 
       const { data: rows, error } = await supabase
         .from('messages')
@@ -1053,6 +1074,7 @@ export function useMessages(user) {
     setMessages,
     reactions,
     toggleReaction,
+    peerName,
     loading,
     notice,
     setNotice,
@@ -1063,6 +1085,7 @@ export function useMessages(user) {
     reload: load,
   }
 }
+
 
 function readAsDataURL(file) {
   return new Promise((resolve, reject) => {
