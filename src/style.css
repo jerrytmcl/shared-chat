@@ -1386,23 +1386,41 @@
 /* Three-Pane Layout */
 main.focus-entered {
   position: relative;
+  overflow: hidden;
+}
+
+main.focus-entered .conversation {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .focus-three-pane {
   display: grid;
-  grid-template-columns: 200px 1fr 320px;
+  grid-template-columns: minmax(400px, 1fr) 360px;
   height: calc(100vh - 76px);
-  background: #f9fafb;
-  animation: three-pane-enter 0.4s ease-out;
+  background: #fff;
+  animation: focus-slide-in 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: center;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .focus-three-pane {
-    animation: none;
+    animation: focus-fade-in 280ms ease-out;
   }
 }
 
-@keyframes three-pane-enter {
+@keyframes focus-slide-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes focus-fade-in {
   from {
     opacity: 0;
   }
@@ -1419,38 +1437,13 @@ main.focus-entered {
   background: #fff;
 }
 
-/* Left Panel: Return control */
-.focus-left-panel {
-  background: #ffffff;
-  border-right: 1px solid var(--line);
-  padding: 24px 20px;
-}
-
-.focus-return-btn {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 0;
-  background: transparent;
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #202630;
-  width: 100%;
-  justify-content: flex-start;
-}
-
-.focus-return-btn:hover {
-  background: #f3f5f8;
-}
-
 /* Center Panel: Focus thread */
 .focus-center-panel {
   background: #ffffff;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--line);
+  min-width: 0;
 }
 
 .focus-thread {
@@ -1458,20 +1451,63 @@ main.focus-entered {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
+}
+
+.focus-thread-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.focus-back-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d9dce3;
+  background: #fff;
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #505662;
+  transition: all 0.15s ease;
+}
+
+.focus-back-chip:hover {
+  background: #f7f8fa;
+  border-color: #c4c8d0;
+  color: #202630;
+}
+
+.focus-back-chip svg {
+  width: 16px;
+  height: 16px;
 }
 
 .focus-thread-messages {
   flex: 1;
-  padding: 24px;
+  padding: 32px 24px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
 }
 
-.center-hint {
+.focus-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 15px;
   text-align: center;
-  margin: auto;
+  padding: 24px;
+}
+
+.focus-empty-state p {
+  margin: 0;
 }
 
 .focus-thread-message {
@@ -1501,7 +1537,7 @@ main.focus-entered {
 }
 
 .focus-thread-time {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   margin-top: 4px;
   padding: 0 6px;
@@ -1513,6 +1549,8 @@ main.focus-entered {
   display: flex;
   gap: 12px;
   align-items: center;
+  background: #fafafb;
+  flex-shrink: 0;
 }
 
 .focus-thread-composer input {
@@ -1521,6 +1559,7 @@ main.focus-entered {
   border-radius: 20px;
   padding: 10px 16px;
   font-size: 15px;
+  background: #fff;
 }
 
 .focus-thread-composer button {
@@ -1534,6 +1573,7 @@ main.focus-entered {
   align-items: center;
   justify-content: center;
   padding: 0;
+  flex-shrink: 0;
 }
 
 .focus-thread-composer button:disabled {
@@ -1541,25 +1581,47 @@ main.focus-entered {
   cursor: not-allowed;
 }
 
-/* Right Panel: Episode */
+/* Right Panel: Episode (extends to viewport edge) */
 .focus-right-panel {
-  background: #fafbfc;
+  background: #f9fafb;
   overflow-y: auto;
+  animation: materials-slide-in 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation-delay: 100ms;
+  animation-fill-mode: both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .focus-right-panel {
+    animation: focus-fade-in 280ms ease-out;
+    animation-delay: 0ms;
+  }
+}
+
+@keyframes materials-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .focus-episode {
-  padding: 24px 20px;
+  padding: 28px 24px;
 }
 
 .focus-episode-header {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .focus-episode-title {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 600;
-  margin: 0 0 8px 0;
+  margin: 0 0 10px 0;
   color: #202630;
+  line-height: 1.3;
 }
 
 .focus-episode-summary {
@@ -1570,28 +1632,110 @@ main.focus-entered {
 }
 
 .focus-episode-materials h3 {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--muted);
-  margin: 0 0 12px 0;
+  letter-spacing: 0.04em;
+  color: #727984;
+  margin: 0 0 14px 0;
 }
 
 .focus-materials-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
-.focus-material-item {
+.focus-material-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 12px;
+  border: 1px solid #e6e8ed;
+  border-radius: 10px;
+  padding: 13px 14px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.15s ease;
 }
 
-/* Mobile: gutter becomes bottom sheet / overlay */
+.focus-material-card:hover {
+  background: #fafbfc;
+  border-color: #d4d7dd;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.focus-material-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.focus-material-icon img {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  display: block;
+}
+
+.focus-material-icon svg {
+  width: 18px;
+  height: 18px;
+  color: #727984;
+}
+
+.focus-material-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.focus-material-text strong {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1c1c1e;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.focus-material-text p {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #606773;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.focus-material-text small {
+  font-size: 11px;
+  color: #8a8a93;
+}
+
+.focus-material-card > svg:last-child {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #a0a5b0;
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.focus-material-card:hover > svg:last-child {
+  opacity: 1;
+}
+
+/* Mobile: stack vertically */
 @media (max-width: 700px) {
   .focus-gutter {
     position: fixed;
@@ -1610,13 +1754,8 @@ main.focus-entered {
 
   .focus-three-pane {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto;
-  }
-
-  .focus-left-panel {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    padding: 12px 16px;
+    grid-template-rows: 1fr auto;
+    gap: 0;
   }
 
   .focus-center-panel {
@@ -1625,7 +1764,20 @@ main.focus-entered {
 
   .focus-right-panel {
     border-top: 1px solid var(--line);
-    max-height: 40vh;
+    max-height: 45vh;
+    animation: none;
+  }
+
+  .focus-thread-header {
+    padding: 14px 16px;
+  }
+
+  .focus-thread-messages {
+    padding: 24px 16px;
+  }
+
+  .focus-episode {
+    padding: 20px 16px;
   }
 
   .focus-thread-message {

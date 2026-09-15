@@ -116,25 +116,26 @@ export function FocusThreePane({ roomId, onReturn, user }) {
 
   return (
     <div className="focus-three-pane">
-      {/* Left: Return control */}
-      <div className="focus-left-panel">
-        <button
-          type="button"
-          className="focus-return-btn"
-          onClick={onReturn}
-          aria-label="Return to main chat"
-        >
-          <Icon name="arrow-left" />
-          <span>Back to chat</span>
-        </button>
-      </div>
-
       {/* Center: Focus thread */}
       <div className="focus-center-panel">
         <div className="focus-thread">
+          <div className="focus-thread-header">
+            <button
+              type="button"
+              className="focus-back-chip"
+              onClick={onReturn}
+              aria-label="Return to main chat"
+            >
+              <Icon name="arrow-left" />
+              <span>Back to chat</span>
+            </button>
+          </div>
+          
           <div className="focus-thread-messages">
             {messages.length === 0 && (
-              <p className="muted center-hint">Start the conversation</p>
+              <div className="focus-empty-state">
+                <p>Share your thoughts about these materials</p>
+              </div>
             )}
             {messages.map((msg) => (
               <div
@@ -178,11 +179,31 @@ export function FocusThreePane({ roomId, onReturn, user }) {
           <div className="focus-episode-materials">
             <h3>Materials</h3>
             <div className="focus-materials-list">
-              {shares.length === 0 && <p className="muted">No materials</p>}
+              {shares.length === 0 && <p className="muted">No materials yet</p>}
               {shares.map((share) => (
-                <div key={share.id} className="focus-material-item">
-                  <Attachment item={share} />
-                </div>
+                <a
+                  key={share.id}
+                  href={share.href || share.url || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="focus-material-card"
+                >
+                  <div className="focus-material-icon">
+                    {share.favicon ? (
+                      <img src={share.favicon} alt="" />
+                    ) : (
+                      <Icon name="file" />
+                    )}
+                  </div>
+                  <div className="focus-material-text">
+                    <strong>{share.title || 'Untitled'}</strong>
+                    {share.description && <p>{share.description}</p>}
+                    {(share.href || share.url) && (
+                      <small>{new URL(share.href || share.url).hostname}</small>
+                    )}
+                  </div>
+                  <Icon name="chevron" />
+                </a>
               ))}
             </div>
           </div>
