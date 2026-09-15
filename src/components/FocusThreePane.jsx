@@ -1,8 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
 import { Icon } from './Icon'
-import { Attachment } from './Attachment'
 import { supabase, CONVERSATION_ID } from '../lib/supabase'
-import { formatTime } from '../lib/groupMessages'
+import { formatTime, hostnameFromUrl } from '../lib/groupMessages'
+
+function faviconUrl(host) {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
+}
+
+function decodeHtmlEntities(text) {
+  const textArea = document.createElement('textarea')
+  textArea.innerHTML = text
+  return textArea.value
+}
 
 /**
  * Three-pane layout for focus rooms:
@@ -181,33 +190,38 @@ export function FocusThreePane({ roomId, onReturn, user }) {
             <div className="focus-materials-list">
               {shares.length === 0 && <p className="muted">No materials yet</p>}
               {shares.map((share) => {
-                const url = share.href || share.url
-                let hostname = ''
-                try {
-                  if (url) hostname = new URL(url).hostname
-                } catch (e) {
-                  // Invalid URL - skip hostname display
-                }
+                const href = share.href || share.url
+                const host = href ? hostnameFromUrl(href) : ''
+                const title = decodeHtmlEntities(share.title || 'Untitled')
+                const description = share.description ? decodeHtmlEntities(share.description) : ''
                 
                 return (
                   <a
                     key={share.id}
-                    href={url || '#'}
+                    href={href}
                     target="_blank"
                     rel="noreferrer"
                     className="focus-material-card"
                   >
-                    <div className="focus-material-icon">
-                      {share.favicon ? (
-                        <img src={share.favicon} alt="" />
-                      ) : (
-                        <Icon name="file" />
+                    {host && (
+                      <img
+                        className="material-favicon"
+                        src={faviconUrl(host)}
+                        alt=""
+                        width="16"
+                        height="16"
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none'
+                        }}
+                      />
+                    )}
+                    <div className="material-content">
+                      <strong className="material-title">{title}</strong>
+                      {description && (
+                        <small className="material-description">{description}</small>
                       )}
-                    </div>
-                    <div className="focus-material-text">
-                      <strong>{share.title || 'Untitled'}</strong>
-                      {share.description && <p>{share.description}</p>}
-                      {hostname && <small>{hostname}</small>}
+                      {host && <small className="material-host">{host}</small>}
                     </div>
                     <Icon name="chevron" />
                   </a>
