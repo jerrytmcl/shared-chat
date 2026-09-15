@@ -8,14 +8,17 @@ import { SearchPanel } from './components/SearchPanel'
 import { Feedback } from './components/Feedback'
 import { DebugLogPanel } from './components/DebugLogPanel'
 import { AuthScreen } from './components/AuthScreen'
-import { FocusRoom } from './components/FocusRoom'
-import { FocusRoomChip } from './components/FocusRoomChip'
+import { FocusThreePane } from './components/FocusThreePane'
+import { FocusGutterWhisper } from './components/FocusGutterWhisper'
+import { FocusDismissedSliver } from './components/FocusDismissedSliver'
 import { useAuth } from './hooks/useAuth'
 import { useMessages } from './hooks/useMessages'
 import { useEnrichShares } from './hooks/useEnrichShares'
 import { useFocusRoomSuggestion } from './hooks/useFocusRoomSuggestion'
+import { useDismissedSuggestions } from './hooks/useDismissedSuggestions'
+import { useFocusRoomSeeding } from './hooks/useFocusRoomSeeding'
 import { groupMessages, formatTime } from './lib/groupMessages'
-import { CONVERSATION_ID } from './lib/supabase'
+import { CONVERSATION_ID, supabase } from './lib/supabase'
 import './style.css'
 
 export default function App() {
@@ -62,6 +65,11 @@ function ChatShell({ auth }) {
   } = useMessages(user)
   useEnrichShares(messages, setMessages)
   const focusRoomSuggestion = useFocusRoomSuggestion(messages, CONVERSATION_ID, user)
+  const dismissedSuggestions = useDismissedSuggestions(CONVERSATION_ID)
+  const [seededSuggestion, setSeededSuggestion] = useState(null)
+  useFocusRoomSeeding(messages, (suggestion) => {
+    setSeededSuggestion(suggestion)
+  })
   const [text, setText] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [buildNoteOpen, setBuildNoteOpen] = useState(false)
@@ -70,6 +78,8 @@ function ChatShell({ auth }) {
   const [drag, setDrag] = useState(false)
   const [chipBusy, setChipBusy] = useState(false)
   const [currentRoomId, setCurrentRoomId] = useState(null)
+  const [gutterSuggestion, setGutterSuggestion] = useState(null)
+  const [focusEntered, setFocusEntered] = useState(false)
   const list = useRef(null)
   const file = useRef(null)
   const [toastVisible, setToastVisible] = useState(false)
@@ -132,22 +142,82 @@ function ChatShell({ auth }) {
     }
   }
 
-  async function acceptFocusRoom() {
-    const roomId = await focusRoomSuggestion.accept()
-    if (roomId) {
-      setCurrentRoomId(roomId)
+  // Sync gutter suggestion from hook or seeded, filtering dismissed
+  useEffect(() => {
+    // Prefer live suggestion over seeded
+    const activeSuggestion = focusRoomSuggestion.suggestion || seededSuggestion
+    
+    if (activeSuggestion) {
+      const shareIds = activeSuggestion.shareIds || []
+      if (!dismissedSuggestions.isDismissed(shareIds)) {
+        setGutterSuggestion(activeSuggestion)
+      }
+    } else {
+      setGutterSuggestion(null)
+    }
+  }, [focusRoomSuggestion.suggestion, seededSuggestion, dismissedSuggestions])
+
+  async function openFocusRoom() {
+    if (!gutterSuggestion) return
+    
+    // If it's a seeded suggestion, create the room directly
+    if (gutterSuggestion.seeded) {
+      // Manually call the create API
+      try {
+        const token = (await supabase?.auth.getSession())?.data.session?.access_token
+        if (!token) return
+        
+        const resp = await fetch('/api/focus/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            conversationId: CONVERSATION_ID,
+            title: gutterSuggestion.title,
+            shareIds: gutterSuggestion.shareIds,
+            analysisIds: [],
+          }),
+        })
+        
+        if (resp.ok) {
+          const result = await resp.json()
+          setCurrentRoomId(result.roomId)
+          setGutterSuggestion(null)
+          setFocusEntered(true)
+        }
+      } catch (e) {
+        console.error('Failed to create seeded focus room', e)
+      }
+    } else {
+      // Use the normal flow
+      const roomId = await focusRoomSuggestion.accept()
+      if (roomId) {
+        setCurrentRoomId(roomId)
+        setGutterSuggestion(null)
+        setFocusEntered(true)
+      }
     }
   }
 
-  // If viewing a focus room, show that instead of main chat
-  if (currentRoomId) {
-    return (
-      <FocusRoom
-        roomId={currentRoomId}
-        onReturn={() => setCurrentRoomId(null)}
-        user={user}
-      />
-    )
+  function dismissGutterSuggestion() {
+    if (!gutterSuggestion) return
+    dismissedSuggestions.dismiss(gutterSuggestion)
+    setGutterSuggestion(null)
+    focusRoomSuggestion.dismiss()
+  }
+
+  function restoreDismissed(fingerprint) {
+    const entry = dismissedSuggestions.restore(fingerprint)
+    if (entry) {
+      setGutterSuggestion(entry)
+    }
+  }
+
+  function returnToChat() {
+    setCurrentRoomId(null)
+    setFocusEntered(false)
   }
 
   return (
@@ -182,22 +252,29 @@ function ChatShell({ auth }) {
         </nav>
       </header>
 
-      <main>
-        <section
-          className={`conversation ${drag ? 'dragging' : ''}`}
-          onDragOver={(e) => {
-            e.preventDefault()
-            setDrag(true)
-          }}
-          onDragLeave={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget)) setDrag(false)
-          }}
-          onDrop={(e) => {
-            e.preventDefault()
-            setDrag(false)
-            sendFiles(e.dataTransfer.files)
-          }}
-        >
+      <main className={focusEntered ? 'focus-entered' : ''}>
+        {focusEntered && currentRoomId ? (
+          <FocusThreePane
+            roomId={currentRoomId}
+            onReturn={returnToChat}
+            user={user}
+          />
+        ) : (
+          <section
+            className={`conversation ${drag ? 'dragging' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault()
+              setDrag(true)
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget)) setDrag(false)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDrag(false)
+              sendFiles(e.dataTransfer.files)
+            }}
+          >
           <div className="messages" ref={list}>
             <div className="message-width">
               <div className="day-divider">Today</div>
@@ -322,23 +399,14 @@ function ChatShell({ auth }) {
                 )
               })}
 
-              {focusRoomSuggestion.suggestion && (
-                <div className="focus-room-chip-wrapper">
-                  <FocusRoomChip
-                    suggestion={focusRoomSuggestion.suggestion}
-                    onAccept={acceptFocusRoom}
-                    busy={focusRoomSuggestion.busy}
+              {dismissedSuggestions.dismissed.map((d) => (
+                <div key={d.fingerprint} className="dismissed-sliver-wrapper">
+                  <FocusDismissedSliver
+                    dismissed={d}
+                    onRestore={() => restoreDismissed(d.fingerprint)}
                   />
-                  <button
-                    type="button"
-                    className="focus-chip-dismiss"
-                    onClick={focusRoomSuggestion.dismiss}
-                    aria-label="Dismiss suggestion"
-                  >
-                    ×
-                  </button>
                 </div>
-              )}
+              ))}
             </div>
           </div>
 
@@ -420,7 +488,20 @@ function ChatShell({ auth }) {
           {drag && (
             <div className="drop-hint">Drop it into the conversation</div>
           )}
-        </section>
+          </section>
+        )}
+
+        {/* Right gutter whisper */}
+        {!focusEntered && gutterSuggestion && (
+          <aside className="focus-gutter">
+            <FocusGutterWhisper
+              suggestion={gutterSuggestion}
+              onOpen={openFocusRoom}
+              onDismiss={dismissGutterSuggestion}
+              busy={focusRoomSuggestion.busy}
+            />
+          </aside>
+        )}
 
         {searchOpen && (
           <SearchPanel
