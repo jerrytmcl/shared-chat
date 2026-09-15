@@ -48,23 +48,15 @@ export default async function handler(req, res) {
   const supabaseUrl = normalizeUrl(
     process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
   )
-  const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim()
   const anonKey = (
     process.env.SUPABASE_ANON_KEY ||
     process.env.VITE_SUPABASE_ANON_KEY ||
     ''
   ).trim()
-  const authKey = anonKey || serviceKey
 
-  if (!supabaseUrl || !authKey) {
+  if (!supabaseUrl || !anonKey) {
     return json(res, 500, {
-      error: 'Server missing SUPABASE_URL or SUPABASE_ANON_KEY / SERVICE_ROLE_KEY',
-    })
-  }
-
-  if (!serviceKey) {
-    return json(res, 500, {
-      error: 'Server missing SUPABASE_SERVICE_ROLE_KEY',
+      error: 'Server missing SUPABASE_URL or SUPABASE_ANON_KEY',
     })
   }
 
@@ -95,7 +87,7 @@ export default async function handler(req, res) {
     return json(res, 400, { error: 'shareIds required (at least one)' })
   }
 
-  const authClient = createClient(supabaseUrl, authKey, {
+  const authClient = createClient(supabaseUrl, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
@@ -105,11 +97,12 @@ export default async function handler(req, res) {
     return json(res, 401, { error: 'Invalid or expired token' })
   }
 
-  const admin = createClient(supabaseUrl, serviceKey, {
+  const userClient = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  const { data: member, error: memberErr } = await admin
+  const { data: member, error: memberErr } = await userClient
     .from('conversation_members')
     .select('user_id')
     .eq('conversation_id', conversationId)
@@ -117,7 +110,7 @@ export default async function handler(req, res) {
     .maybeSingle()
 
   if (memberErr) {
-    console.error('[focus/create] member check failed', {
+    console.error('[focus/create] membership check failed', {
       conversationId,
       userId: userData.user.id,
       error: memberErr.message,
@@ -126,7 +119,7 @@ export default async function handler(req, res) {
   }
 
   if (!member) {
-    const { error: joinErr } = await admin
+    const { error: joinErr } = await userClient
       .from('conversation_members')
       .insert({
         conversation_id: conversationId,
@@ -135,13 +128,13 @@ export default async function handler(req, res) {
       })
 
     if (joinErr && joinErr.code !== '23505') {
-      console.error('[focus/create] auto-join failed', {
+      console.error('[focus/create] auto-join failed (RLS denied or other error)', {
         conversationId,
         userId: userData.user.id,
         error: joinErr.message,
         code: joinErr.code,
       })
-      return json(res, 500, { error: `Could not join conversation: ${joinErr.message}` })
+      return json(res, 403, { error: 'Not a conversation member' })
     }
 
     console.log('[focus/create] auto-joined user', {
@@ -159,7 +152,7 @@ export default async function handler(req, res) {
 
   try {
     // Create the focus room
-    const { data: room, error: roomErr } = await admin
+    const { data: room, error: roomErr } = await userClient
       .from('focus_rooms')
       .insert({
         conversation_id: conversationId,
@@ -183,7 +176,7 @@ export default async function handler(req, res) {
       share_id: shareId,
     }))
 
-    const { error: itemsErr } = await admin
+    const { error: itemsErr } = await userClient
       .from('focus_items')
       .insert(items)
 
