@@ -35,6 +35,10 @@ export function useFocusRoomSeeding(messages, onSeed) {
 
     // Get share IDs and extract titles
     const shareIds = recentMaterials.map((m) => m.share_id).filter(Boolean)
+    
+    // Require valid share IDs
+    if (shareIds.length === 0) return
+    
     const titles = recentMaterials
       .map((m) => m.share?.title)
       .filter(Boolean)

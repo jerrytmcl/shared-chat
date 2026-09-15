@@ -80,6 +80,7 @@ function ChatShell({ auth }) {
   const [currentRoomId, setCurrentRoomId] = useState(null)
   const [gutterSuggestion, setGutterSuggestion] = useState(null)
   const [focusEntered, setFocusEntered] = useState(false)
+  const [opening, setOpening] = useState(false)
   const list = useRef(null)
   const file = useRef(null)
   const [toastVisible, setToastVisible] = useState(false)
@@ -158,46 +159,67 @@ function ChatShell({ auth }) {
   }, [focusRoomSuggestion.suggestion, seededSuggestion, dismissedSuggestions])
 
   async function openFocusRoom() {
-    if (!gutterSuggestion) return
+    if (!gutterSuggestion || opening) return
     
-    // If it's a seeded suggestion, create the room directly
-    if (gutterSuggestion.seeded) {
-      // Manually call the create API
-      try {
-        const token = (await supabase?.auth.getSession())?.data.session?.access_token
-        if (!token) return
-        
-        const resp = await fetch('/api/focus/create', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            conversationId: CONVERSATION_ID,
-            title: gutterSuggestion.title,
-            shareIds: gutterSuggestion.shareIds,
-            analysisIds: [],
-          }),
-        })
-        
-        if (resp.ok) {
-          const result = await resp.json()
-          setCurrentRoomId(result.roomId)
-          setGutterSuggestion(null)
-          setFocusEntered(true)
+    setOpening(true)
+    
+    try {
+      const token = (await supabase?.auth.getSession())?.data.session?.access_token
+      if (!token) {
+        setNotice('Authentication required. Please sign in again.')
+        setOpening(false)
+        return
+      }
+      
+      const resp = await fetch('/api/focus/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          conversationId: CONVERSATION_ID,
+          title: gutterSuggestion.title || 'Focus Room',
+          shareIds: gutterSuggestion.shareIds || [],
+          analysisIds: gutterSuggestion.analysisIds || [],
+        }),
+      })
+      
+      if (!resp.ok) {
+        const errorBody = await resp.text()
+        let errorMessage = 'Failed to create focus room'
+        try {
+          const errorJson = JSON.parse(errorBody)
+          errorMessage = errorJson.error || errorMessage
+        } catch {
+          errorMessage = `${errorMessage} (${resp.status})`
         }
-      } catch (e) {
-        console.error('Failed to create seeded focus room', e)
+        setNotice(errorMessage)
+        setOpening(false)
+        return
       }
-    } else {
-      // Use the normal flow
-      const roomId = await focusRoomSuggestion.accept()
-      if (roomId) {
-        setCurrentRoomId(roomId)
-        setGutterSuggestion(null)
-        setFocusEntered(true)
+      
+      const result = await resp.json()
+      
+      // Success: enter three-pane and clear suggestion
+      setCurrentRoomId(result.roomId)
+      setFocusEntered(true)
+      
+      // Clear the gutter suggestion
+      setGutterSuggestion(null)
+      
+      // Clear the matching dismissed entry if it exists
+      const fingerprint = (gutterSuggestion.shareIds || []).sort().join(',')
+      const dismissed = dismissedSuggestions.dismissed.find(d => d.fingerprint === fingerprint)
+      if (dismissed) {
+        dismissedSuggestions.restore(fingerprint) // restore() removes from dismissed list
       }
+      
+    } catch (e) {
+      console.error('Failed to create focus room', e)
+      setNotice(`Error creating focus room: ${e.message || 'Network error'}`)
+    } finally {
+      setOpening(false)
     }
   }
 
@@ -498,7 +520,7 @@ function ChatShell({ auth }) {
               suggestion={gutterSuggestion}
               onOpen={openFocusRoom}
               onDismiss={dismissGutterSuggestion}
-              busy={focusRoomSuggestion.busy}
+              busy={opening}
             />
           </aside>
         )}
