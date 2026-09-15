@@ -180,31 +180,39 @@ export function FocusThreePane({ roomId, onReturn, user }) {
             <h3>Materials</h3>
             <div className="focus-materials-list">
               {shares.length === 0 && <p className="muted">No materials yet</p>}
-              {shares.map((share) => (
-                <a
-                  key={share.id}
-                  href={share.href || share.url || '#'}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="focus-material-card"
-                >
-                  <div className="focus-material-icon">
-                    {share.favicon ? (
-                      <img src={share.favicon} alt="" />
-                    ) : (
-                      <Icon name="file" />
-                    )}
-                  </div>
-                  <div className="focus-material-text">
-                    <strong>{share.title || 'Untitled'}</strong>
-                    {share.description && <p>{share.description}</p>}
-                    {(share.href || share.url) && (
-                      <small>{new URL(share.href || share.url).hostname}</small>
-                    )}
-                  </div>
-                  <Icon name="chevron" />
-                </a>
-              ))}
+              {shares.map((share) => {
+                const url = share.href || share.url
+                let hostname = ''
+                try {
+                  if (url) hostname = new URL(url).hostname
+                } catch (e) {
+                  // Invalid URL - skip hostname display
+                }
+                
+                return (
+                  <a
+                    key={share.id}
+                    href={url || '#'}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="focus-material-card"
+                  >
+                    <div className="focus-material-icon">
+                      {share.favicon ? (
+                        <img src={share.favicon} alt="" />
+                      ) : (
+                        <Icon name="file" />
+                      )}
+                    </div>
+                    <div className="focus-material-text">
+                      <strong>{share.title || 'Untitled'}</strong>
+                      {share.description && <p>{share.description}</p>}
+                      {hostname && <small>{hostname}</small>}
+                    </div>
+                    <Icon name="chevron" />
+                  </a>
+                )
+              })}
             </div>
           </div>
         </div>
