@@ -269,7 +269,7 @@ export default async function handler(req, res) {
   }
   body = body || {}
 
-  const conversationId = body.conversationId
+  const conversationId = (body.conversationId || '').trim()
   const shareIds = Array.isArray(body.shareIds) ? body.shareIds : []
   const recentMessages = Array.isArray(body.recentMessages) ? body.recentMessages : []
 
@@ -295,15 +295,45 @@ export default async function handler(req, res) {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  const { data: member } = await admin
+  const { data: member, error: memberErr } = await admin
     .from('conversation_members')
     .select('user_id')
     .eq('conversation_id', conversationId)
     .eq('user_id', userData.user.id)
     .maybeSingle()
 
+  if (memberErr) {
+    console.error('[analyze] member check failed', {
+      conversationId,
+      userId: userData.user.id,
+      error: memberErr.message,
+    })
+    return json(res, 500, { error: `Membership check failed: ${memberErr.message}` })
+  }
+
   if (!member) {
-    return json(res, 403, { error: 'Not a conversation member' })
+    const { error: joinErr } = await admin
+      .from('conversation_members')
+      .insert({
+        conversation_id: conversationId,
+        user_id: userData.user.id,
+        role: 'member',
+      })
+
+    if (joinErr && joinErr.code !== '23505') {
+      console.error('[analyze] auto-join failed', {
+        conversationId,
+        userId: userData.user.id,
+        error: joinErr.message,
+        code: joinErr.code,
+      })
+      return json(res, 500, { error: `Could not join conversation: ${joinErr.message}` })
+    }
+
+    console.log('[analyze] auto-joined user', {
+      conversationId,
+      userId: userData.user.id,
+    })
   }
 
   const { data: shares, error: shareErr } = await admin

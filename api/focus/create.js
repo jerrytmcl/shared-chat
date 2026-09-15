@@ -82,7 +82,7 @@ export default async function handler(req, res) {
   }
   body = body || {}
 
-  const conversationId = body.conversationId
+  const conversationId = (body.conversationId || '').trim()
   const title = body.title
   const shareIds = Array.isArray(body.shareIds) ? body.shareIds : []
   const analysisIds = Array.isArray(body.analysisIds) ? body.analysisIds : []
@@ -109,22 +109,52 @@ export default async function handler(req, res) {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  const { data: member } = await admin
+  const { data: member, error: memberErr } = await admin
     .from('conversation_members')
     .select('user_id')
     .eq('conversation_id', conversationId)
     .eq('user_id', userData.user.id)
     .maybeSingle()
 
-  if (!member) {
-    return json(res, 403, { error: 'Not a conversation member' })
+  if (memberErr) {
+    console.error('[focus/create] member check failed', {
+      conversationId,
+      userId: userData.user.id,
+      error: memberErr.message,
+    })
+    return json(res, 500, { error: `Membership check failed: ${memberErr.message}` })
   }
 
-  console.log('[focus/create] creating room', {
+  if (!member) {
+    const { error: joinErr } = await admin
+      .from('conversation_members')
+      .insert({
+        conversation_id: conversationId,
+        user_id: userData.user.id,
+        role: 'member',
+      })
+
+    if (joinErr && joinErr.code !== '23505') {
+      console.error('[focus/create] auto-join failed', {
+        conversationId,
+        userId: userData.user.id,
+        error: joinErr.message,
+        code: joinErr.code,
+      })
+      return json(res, 500, { error: `Could not join conversation: ${joinErr.message}` })
+    }
+
+    console.log('[focus/create] auto-joined user', {
+      conversationId,
+      userId: userData.user.id,
+    })
+  }
+
+  console.log('[focus/create] verified member, creating room', {
     conversationId,
+    userId: userData.user.id,
     title,
     shareCount: shareIds.length,
-    userId: userData.user.id,
   })
 
   try {
@@ -163,7 +193,11 @@ export default async function handler(req, res) {
       return json(res, 500, { error: itemsErr.message })
     }
 
-    console.log('[focus/create] success', { roomId: room.id })
+    console.log('[focus/create] success', {
+      roomId: room.id,
+      conversationId,
+      userId: userData.user.id,
+    })
 
     return json(res, 200, {
       roomId: room.id,
